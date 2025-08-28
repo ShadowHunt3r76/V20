@@ -260,7 +260,7 @@ namespace LinearProgramming.Parsing
                     var type = foundOperator == "<=" ? ConstraintType.LessThanOrEqual :
                         foundOperator == ">=" ? ConstraintType.GreaterThanOrEqual : ConstraintType.Equal;
                     
-                    // Parse RHS
+                    // Parse RHS - accepts both formats like "40" and "+40"
                     if (!double.TryParse(rhsPart, NumberStyles.Float, CultureInfo.InvariantCulture, out double rhs))
                         throw new LinearProgrammingParseException($"RHS value format error on line {i + 1}: '{rhsPart}'");
                     
@@ -323,9 +323,9 @@ namespace LinearProgramming.Parsing
                 {
                     if (string.IsNullOrWhiteSpace(part)) continue;
                     
-                    // Updated regex to handle the exact format requirements
-                    if (!Regex.IsMatch(part, @"^[+-]?\d+(?:\.\d+)?$"))
-                        throw new LinearProgrammingParseException($"Coefficient format error at line {lineNumber}, position {col}: '{part}'");
+                    // Accept coefficients with explicit signs (required for objective and constraint coefficients)
+                    if (!Regex.IsMatch(part, @"^[+-]\d+(?:\.\d+)?$"))
+                        throw new LinearProgrammingParseException($"Coefficient format error at line {lineNumber}, position {col}: '{part}' (coefficients must have explicit + or - signs)");
                     try
                     {
                         coeffs.Add(double.Parse(part, CultureInfo.InvariantCulture));
@@ -362,5 +362,4 @@ namespace LinearProgramming.Parsing
             public LinearProgrammingParseException(string message, Exception inner) : base(message, inner) { }
         }
     }
-
 }
