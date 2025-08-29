@@ -22,7 +22,7 @@ namespace LinearProgrammingApp
                 var canonicalModel = parsedModel.ToCanonicalForm();
 
                 // Choose algorithm (Primal or Revised)
-                Console.WriteLine("Choose algorithm: 1) Primal Simplex  2) Revised Primal Simplex");
+                Console.WriteLine("Choose algorithm: 1) Primal Simplex  2) Revised Primal Simplex  3) Cutting Plane");
                 var key = Console.ReadKey();
                 Console.WriteLine();
                 LinearProgramSolution solution = null;
@@ -31,6 +31,14 @@ namespace LinearProgrammingApp
                     var revisedSolver = new RevisedPrimalSimplexSolver();
                     solution = revisedSolver.Solve(canonicalModel);
                 }
+                else if (key.KeyChar == '3')
+                {
+                    var cp = new CuttingPlaneAlgorithm.CuttingPlane();
+                    cp.CuttingPlaneSolve(canonicalModel);
+                    Console.WriteLine("Cutting Plane algorithm completed successfully. Results saved to cuttingplane_output.txt");
+                    return; //the method handles printing to the txt file.
+                }
+
                 else
                 {
                     var primalSolver = new PrimalSimplexSolver();

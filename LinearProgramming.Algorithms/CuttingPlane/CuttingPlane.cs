@@ -6,80 +6,347 @@ using System.Threading.Tasks;
 
 namespace CuttingPlaneAlgorithm
 {
-    internal class CuttingPlane
+    public class CuttingPlane
     {
-        
 
-        public CuttingPlane() { }
+
+        public void CuttingPlaneSolve(LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel model)
+        {
+            //Solve LP relaxation using primal simplex
+            var simplex = new LinearProgramming.Algorithms.PrimalSimplexSolver();
+            var solution = simplex.Solve(model);
+            double[,] tableau = solution.OptimalTable;
+
+            int numOriginalVars = model.ObjectiveCoefficients.Length;
+
+            //Save initial tableau (LP relaxation)
+            SaveIteration(tableau);
+
+            bool integerSolutionFound = false;
+            int maxIter = 50;
+            int iter = 0;
+
+            //Cutting plane loop
+            while (!integerSolutionFound && iter < maxIter)
+            {
+                //Find fractional row among decision variables
+                int cutRow = SelectPivotRowCuttingP(tableau, numOriginalVars);
+                if (cutRow == -1)
+                {
+                    integerSolutionFound = true;
+                    break;
+                }
+
+                //Apply cut
+                tableau = ApplyCuttingP(tableau, cutRow);
+                SaveIteration(tableau);
+
+                //Restore feasibility with Dual Simplex
+                bool feasible = false;
+                int dualIter = 0;
+                while (!feasible && dualIter < 50)
+                {
+                    feasible = OptimalityCheckDualS(tableau);
+                    SaveIteration(tableau);
+                    dualIter++;
+                }
+
+                iter++;
+            }
+
+            //Print final results
+            PrintAnswersToTxt("cuttingplane_output.txt");
+        }
+
 
         //cutting plane pivot row selecection
-        public void SelectPivotRowCuttingP(double[,] tableau, int[] basicVariables, int[] nonBasicVariables)
+        private int SelectPivotRowCuttingP(double[,] tableau, int numOriginalVariables)
         {
-            // Implement the logic to select the pivot row based on the cutting plane method
-            // This typically involves finding the most negative coefficient in the objective function row
-            // and determining which variable to enter the basis.
-            // For now, this is a placeholder for your implementation.
+            int rows = tableau.GetLength(0);
+            int cols = tableau.GetLength(1);
+            int rhsIndex = cols - 1;
+
+            int bestRow = -1;
+            double bestFraction = 0.0;
+
+            // loop over all constraint rows
+            for (int i = 1; i < rows; i++)
+            {
+                double rhs = tableau[i, rhsIndex];
+                double fraction = rhs - Math.Floor(rhs);
+
+                if (fraction > 1e-6) // not an integer
+                {
+                    // find the basic variable in this row
+                    int basicCol = -1;
+                    for (int j = 0; j < cols - 1; j++)
+                    {
+                        bool isUnitColumn = true;
+                        if (tableau[i, j] == 1)
+                        {
+                            // check other rows for 0
+                            for (int k = 0; k < rows; k++)
+                            {
+                                if (k != i && Math.Abs(tableau[k, j]) > 1e-6)
+                                {
+                                    isUnitColumn = false;
+                                    break;
+                                }
+                            }
+                            if (isUnitColumn)
+                            {
+                                basicCol = j;
+                                break;
+                            }
+                        }
+                    }
+
+                    // only allow if the basic variable is an original x-variable
+                    if (basicCol != -1 && basicCol < numOriginalVariables)
+                    {
+                        if (fraction > bestFraction)
+                        {
+                            bestFraction = fraction;
+                            bestRow = i;
+                        }
+                    }
+                }
+            }
+
+            return bestRow; // -1 means "no fractional x-variable found"
         }
+
 
         //cutting plane cut method
 
-        public void ApplyCuttingP(double[,] tableau, int[] basicVariables, int[] nonBasicVariables)
+        private double[,] ApplyCuttingP(double[,] tableau, int cutRow)
         {
-            // Implement the logic to apply the cutting plane method
-            // This typically involves adding a new constraint to the tableau based on the current solution
-            // and resolving the tableau.
-            // Add new constraint to optimal table.
+            // Helper: fractional part function
+            double FractionalPart(double x)
+            {
+                double f = x - Math.Floor(x);   // always between 0 and 1
+                if (Math.Abs(f) < 1e-6) return 0;  // treat tiny value as 0
+                return f;
+            }
+
+            int oldRows = tableau.GetLength(0);
+            int oldCols = tableau.GetLength(1);
+            int rhsIndex = oldCols - 1;
+
+            // New tableau: +1 row for the cut, +1 column for the slack variable
+            double[,] newTableau = new double[oldRows + 1, oldCols + 1];
+
+            // Copy the old tableau (coefficients)
+            for (int i = 0; i < oldRows; i++)
+            {
+                for (int j = 0; j < oldCols; j++)
+                {
+                    newTableau[i, j] = tableau[i, j];
+                }
+            }
+
+            // Copy RHS values into new last column
+            for (int i = 0; i < oldRows; i++)
+            {
+                newTableau[i, oldCols] = tableau[i, rhsIndex];
+            }
+
+            // Build the cut row
+            for (int j = 0; j < rhsIndex; j++)
+            {
+                double coeff = tableau[cutRow, j];
+                newTableau[oldRows, j] = -FractionalPart(coeff); // negative fractional part
+            }
+
+            // Slack variable coefficient = 1
+            newTableau[oldRows, oldCols - 1] = 1;
+
+            // RHS = - fractional part of original RHS
+            double rhs = tableau[cutRow, rhsIndex];
+            newTableau[oldRows, oldCols] = -FractionalPart(rhs);
+
+            return newTableau;
         }
+
 
         //Dual Simplex programming
 
         // pivot row selection DualSimplex
 
-        public void SelectPivotRowDualS(double[,] tableau, int[] basicVariables, int[] nonBasicVariables)
+        private int SelectPivotRowDualS(double[,] tableau)
         {
-            // Implement the logic to select the pivot row for the dual simplex method
-            // This typically involves finding the most negative coefficient in the right-hand side
-            // and determining which variable to enter the basis.
-            // For now, this is a placeholder for your implementation.
+            int rows = tableau.GetLength(0);
+            int cols = tableau.GetLength(1);
+            int rhsIndex = cols - 1;
 
-            //call SelectPivotColumnDualS(tableau, basicVariables, nonBasicVariables);
+            int pivotRow = -1;
+            double mostNegative = 0.0; // we want < 0
+
+            // Check constraint rows (skip row 0 = objective)
+            for (int i = 1; i < rows; i++)
+            {
+                double rhs = tableau[i, rhsIndex];
+                if (rhs < mostNegative - 1e-6) 
+                {
+                    mostNegative = rhs;
+                    pivotRow = i;
+                }
+            }
+
+            return pivotRow; // -1 means "no negative RHS found"
         }
 
         //pivot column selection DualSimplex
 
-        public void SelectPivotColumnDualS(double[,] tableau, int[] basicVariables, int[] nonBasicVariables)
+        private int SelectPivotColumnDualS(double[,] tableau, int pivotRow)
         {
-            // Implement the logic to select the pivot column for the dual simplex method
-            // This typically involves finding the most negative coefficient in the objective function row
-            // and determining which variable to leave the basis.
-            // For now, this is a placeholder for your implementation.
+            int cols = tableau.GetLength(1);
+            int rhsIndex = cols - 1;
 
-            //call PivotPrimalSimplex method;
+            int pivotCol = -1; //indicating pivotCol not found as starting point
+            double minRatio = double.MaxValue; //starting point for "smallest ratio" is largest possible double value
+
+            for (int j = 0; j < rhsIndex; j++)
+            {
+                double coeff = tableau[pivotRow, j];
+
+                if (coeff < -1e-6) // only consider negative pivot row entries
+                {
+                    double ratio = tableau[0, j] / coeff;
+
+                    if (ratio >= 0 && ratio < minRatio) // only accept non-negative ratios
+                    {
+                        minRatio = ratio;
+                        pivotCol = j;
+                    }
+                }
+            }
+
+            return pivotCol; // -1 means no valid column found
         }
-
-        //PivotPrimaSimplex method call here & call OptimalityCheckDualS method
 
         // optimality check Dual Simplex
 
-        public void OptimalityCheckDualS(double[,] tableau, int[] basicVariables, int[] nonBasicVariables)
+        private bool OptimalityCheckDualS(double[,] tableau)
         {
-            // Implement the logic to check the optimality of the current solution in the dual simplex method
-            // This typically involves checking if all coefficients in the objective function row are non-negative.
-            // For now, this is a placeholder for your implementation.
+            int rows = tableau.GetLength(0);
+            int cols = tableau.GetLength(1);
+            int rhsIndex = cols - 1;
 
-            //If optimal for Dual, call OptimalityCheckPrimal; If optimal - PrintAnswersToTxt method call.
-            //If not optimal for Dual, call SelectPivotRowDualS method;
+            // Step 1: check feasibility (all RHS >= 0)
+            for (int i = 1; i < rows; i++) // skip row 0 (objective)
+            {
+                if (tableau[i, rhsIndex] < -1e-6) // negative RHS found
+                {
+                    Console.WriteLine("Dual Simplex: Solution infeasible, selecting pivot...");
+
+                    int pivotRow = SelectPivotRowDualS(tableau);
+                    if (pivotRow == -1)
+                    {
+                        Console.WriteLine("No valid pivot row found. Problem infeasible.");
+                        return false;
+                    }
+
+                    int pivotCol = SelectPivotColumnDualS(tableau, pivotRow);
+                    if (pivotCol == -1)
+                    {
+                        Console.WriteLine("No valid pivot column found. Problem infeasible.");
+                        return false;
+                    }
+
+                    Console.WriteLine($"Pivoting on row {pivotRow}, column {pivotCol}...");
+                    tableau = Pivot(tableau, pivotCol, pivotRow);
+
+                    // return false = "not optimal yet, keep looping"
+                    return false;
+                }
+            }
+
+            // If we reach here → all RHS are ≥ 0
+            Console.WriteLine("Dual Simplex: Feasible solution found.");
+            // Here you would normally call OptimalityCheckPrimal(tableau) and maybe PrintAnswersToTxt()
+            return true; // solution feasible
         }
+
+
+        // Local copy of Pivot so CuttingPlane is self-contained (else we can make Pivot in PrimalSimplexSolver public and call here)
+        private double[,] Pivot(double[,] tableau, int entering, int leaving)
+        {
+            int rows = tableau.GetLength(0);
+            int cols = tableau.GetLength(1);
+            double[,] newTable = new double[rows, cols];
+            double pivot = tableau[leaving, entering];
+
+            
+            for (int j = 0; j < cols; j++)
+                newTable[leaving, j] = tableau[leaving, j] / pivot;
+
+            // Eliminate column entries
+            for (int i = 0; i < rows; i++)
+            {
+                if (i == leaving) continue;
+                double factor = tableau[i, entering];
+                for (int j = 0; j < cols; j++)
+                    newTable[i, j] = tableau[i, j] - factor * newTable[leaving, j];
+            }
+
+            return newTable;
+        }
+
+
 
         //print answers to txt file
 
-        public void PrintAnswersToTxt()
+        // Store history of cutting plane iterations
+        private List<double[,]> CuttingPlaneHistory = new List<double[,]>();
+
+        private void SaveIteration(double[,] tableau)
         {
-            
+            // clone the tableau so later changes don't overwrite
+            CuttingPlaneHistory.Add((double[,])tableau.Clone());
         }
 
+        private void PrintAnswersToTxt(string filePath = "cuttingplane_output.txt")
+        {
+            using (StreamWriter writer = new StreamWriter(filePath))
+            {
+                writer.WriteLine("=== Cutting Plane Method Output ===\n");
 
+                int iter = 1;
+                foreach (var tableau in CuttingPlaneHistory)
+                {
+                    writer.WriteLine($"--- Cutting Plane Iteration {iter} ---");
+                    PrintMatrix(writer, tableau);
+                    writer.WriteLine();
+                    iter++;
+                }
 
+                if (CuttingPlaneHistory.Count > 0)
+                {
+                    writer.WriteLine("=== Final Integer Optimal Tableau ===");
+                    var finalTableau = CuttingPlaneHistory[CuttingPlaneHistory.Count - 1];
+                    PrintMatrix(writer, finalTableau);
+                }
+            }
+
+            Console.WriteLine($"Cutting plane output written to {filePath}");
+        }
+
+        // Helper to print any tableau with values rounded to three decimals
+        private void PrintMatrix(StreamWriter writer, double[,] matrix)
+        {
+            int rows = matrix.GetLength(0);
+            int cols = matrix.GetLength(1);
+
+            for (int i = 0; i < rows; i++)
+            {
+                for (int j = 0; j < cols; j++)
+                {
+                    writer.Write($"{Math.Round(matrix[i, j], 3),8} "); // 3 decimals, padded
+                }
+                writer.WriteLine();
+            }
+        }
 
     }
 }
