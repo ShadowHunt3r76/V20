@@ -11,12 +11,12 @@ public class ParserFormatTests
     {
         // Test the exact format from the specification:
         // max +2 +3 +3 +5 +2 +4
-        // +11 +8 +6 +14 +10 +10 <=40
+        // +11 +8 +6 +14 +10 +10 <= 40
         // bin bin bin bin bin bin
         
         var parser = new ParsedLinearProgrammingModel.UniversalLinearProgrammingParser();
         string input = @"max +2 +3 +3 +5 +2 +4
-+11 +8 +6 +14 +10 +10 <= +40
++11 +8 +6 +14 +10 +10 <= 40
 bin bin bin bin bin bin";
         
         // This should not throw an exception
@@ -47,9 +47,9 @@ bin bin bin bin bin bin";
         // Test with multiple constraints as mentioned in requirements
         var parser = new ParsedLinearProgrammingModel.UniversalLinearProgrammingParser();
         string input = @"max +2 +3 +1
-+1 +2 +0 <= +4
-+2 +1 +3 >= +5
-+1 +1 +1 = +3
++1 +2 +0 <= 4
++2 +1 +3 >= 5
++1 +1 +1 = 3
 + + +";
         
         var parsedModel = parser.ParseFromString(input);
@@ -71,15 +71,15 @@ bin bin bin bin bin bin";
     public void TestConstraintRegexPattern()
     {
         // Test the constraint regex pattern directly
-        var constraintRegex = new Regex(@"^([+-]\d+(?:\.\d+)?(?:\s+[+-]\d+(?:\.\d+)?)*\s*)(<=|>=|=)\s*([+-]?\d+(?:\.\d+)?)$", RegexOptions.IgnoreCase);
+        var constraintRegex = new Regex(@"^([+-]?\d+(?:\.\d+)?(?:\s+[+-]?\d+(?:\.\d+)?)*\s*)(<=|>=|=)\s*([+-]?\d+(?:\.\d+)?)$", RegexOptions.IgnoreCase);
         
-        string testConstraint = "+11 +8 +6 +14 +10 +10 <= +40";
+        string testConstraint = "+11 +8 +6 +14 +10 +10 <= 40";
         var match = constraintRegex.Match(testConstraint);
         
         Assert.True(match.Success, $"Constraint regex should match: '{testConstraint}'");
         Assert.Equal("+11 +8 +6 +14 +10 +10 ", match.Groups[1].Value);
         Assert.Equal("<=", match.Groups[2].Value);
-        Assert.Equal("+40", match.Groups[3].Value);
+        Assert.Equal("40", match.Groups[3].Value);
     }
     
     [Fact]
@@ -88,7 +88,7 @@ bin bin bin bin bin bin";
         // Test coefficient parsing with both positive and negative values
         var parser = new ParsedLinearProgrammingModel.UniversalLinearProgrammingParser();
         string input = @"min -2 +3 -1
-+1 -2 +0 <= +4
++1 -2 +0 <= 4
 + - +";
         
         var parsedModel = parser.ParseFromString(input);
