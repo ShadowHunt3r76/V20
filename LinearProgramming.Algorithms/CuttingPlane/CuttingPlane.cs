@@ -8,6 +8,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
 {
     public class CuttingPlane
     {
+        private int _numOriginalConstraints;
 
 
         public LinearProgramSolution CuttingPlaneSolve(LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel model)
@@ -17,13 +18,16 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             var solution = simplex.Solve(model);
             double[,] tableau = solution.OptimalTable;
 
+            // how many original constraints was started with
+            _numOriginalConstraints = tableau.GetLength(0) - 1;
+
             int numOriginalVars = model.ObjectiveCoefficients.Length;
 
             //Save initial tableau (LP relaxation)
             SaveIteration(tableau);
 
             bool integerSolutionFound = false;
-            int maxIter = 50;
+            int maxIter = 250;
             int iter = 0;
 
             //Cutting plane loop
@@ -44,9 +48,9 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 //Restore feasibility with Dual Simplex
                 bool feasible = false;
                 int dualIter = 0;
-                while (!feasible && dualIter < 50)
+                while (!feasible && dualIter < 200)
                 {
-                    feasible = OptimalityCheckDualS(tableau);
+                    feasible = OptimalityCheckDualS(ref tableau);
                     SaveIteration(tableau);
                     dualIter++;
                 }
@@ -110,54 +114,48 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             int cols = tableau.GetLength(1);
             int rhsIndex = cols - 1;
 
+            const double tol = 1e-4; // tolerance to avoid endless tiny fractions
             int bestRow = -1;
             double bestFraction = 0.0;
 
-            // loop over all constraint rows
-            for (int i = 1; i < rows; i++)
+            // Only scan ORIGINAL constraints, not the cuts added later
+            int lastOriginalRow = Math.Min(_numOriginalConstraints, rows - 1);
+            for (int i = 1; i <= lastOriginalRow; i++)
             {
                 double rhs = tableau[i, rhsIndex];
-                double fraction = rhs - Math.Floor(rhs);
+                double frac = rhs - Math.Floor(rhs);
+                if (frac < tol || frac > 1 - tol) continue; // treat near-integers as integers
 
-                if (fraction > 1e-6) // not an integer
+                // find the basic column for this row (unit column test)
+                int basicCol = -1;
+                for (int j = 0; j < rhsIndex; j++)
                 {
-                    // find the basic variable in this row
-                    int basicCol = -1;
-                    for (int j = 0; j < cols - 1; j++)
+                    if (Math.Abs(tableau[i, j] - 1.0) < 1e-6)
                     {
-                        bool isUnitColumn = true;
-                        if (tableau[i, j] == 1)
-                        {
-                            // check other rows for 0
-                            for (int k = 0; k < rows; k++)
-                            {
-                                if (k != i && Math.Abs(tableau[k, j]) > 1e-6)
-                                {
-                                    isUnitColumn = false;
-                                    break;
-                                }
-                            }
-                            if (isUnitColumn)
-                            {
-                                basicCol = j;
-                                break;
-                            }
-                        }
-                    }
+                        bool isUnit = true;
 
-                    // only allow if the basic variable is an original x-variable
-                    if (basicCol != -1 && basicCol < numOriginalVariables)
-                    {
-                        if (fraction > bestFraction)
+                        // check other rows for 0
+                        for (int k = 0; k < rows; k++)
                         {
-                            bestFraction = fraction;
-                            bestRow = i;
+                            if (k == i) continue;
+                            if (Math.Abs(tableau[k, j]) > 1e-6) { isUnit = false; break; }
                         }
+                        if (isUnit) { basicCol = j; break; }
+                    }
+                }
+
+                // only cut if the basic var is one of the ORIGINAL x-variables
+                if (basicCol != -1 && basicCol < numOriginalVariables)
+                {
+                    if (frac > bestFraction)
+                    {
+                        bestFraction = frac;
+                        bestRow = i;
                     }
                 }
             }
 
-            return bestRow; // -1 means "no fractional x-variable found"
+            return bestRow; // -1 => no fractional original x found
         }
 
 
@@ -165,52 +163,56 @@ namespace LinearProgramming.Algorithms.CuttingPlane
 
         private double[,] ApplyCuttingP(double[,] tableau, int cutRow)
         {
+
             // Helper: fractional part function
             double FractionalPart(double x)
             {
-                double f = x - Math.Floor(x);   // always between 0 and 1
-                if (Math.Abs(f) < 1e-6) return 0;  // treat tiny value as 0
-                return f;
+                double f = x - Math.Floor(x); // always between 0 and 1 
+                return (Math.Abs(f) < 1e-6) ? 0.0 : f; // treat tiny value as 0 
             }
 
             int oldRows = tableau.GetLength(0);
             int oldCols = tableau.GetLength(1);
-            int rhsIndex = oldCols - 1;
+            int oldRhsIndex = oldCols - 1;
 
-            // New tableau: +1 row for the cut, +1 column for the slack variable
-            double[,] newTableau = new double[oldRows + 1, oldCols + 1];
+            // New matrix has one extra row (the cut) and one extra column (new slack). 
+            // Insert new slack column before RHS, so RHS stays the last column. 
+            int newRows = oldRows + 1;
+            int newCols = oldCols + 1;        // one extra column
+            int newRhsIndex = newCols - 1;    // RHS stays last
 
-            // Copy the old tableau (coefficients)
+            double[,] newT = new double[newRows, newCols];
+
+            // Copy old coefficients, shifting the old RHS one column to the RIGHT.
+            // Columns [0 .. oldRhsIndex-1] stay the same indices.
+            // The NEW slack column is at index = oldRhsIndex.
             for (int i = 0; i < oldRows; i++)
             {
-                for (int j = 0; j < oldCols; j++)
-                {
-                    newTableau[i, j] = tableau[i, j];
-                }
+                // copy all non-RHS columns as-is
+                for (int j = 0; j < oldRhsIndex; j++)
+                    newT[i, j] = tableau[i, j];
+
+                // set the NEW slack column to 0 for existing rows
+                newT[i, oldRhsIndex] = 0.0;
+
+                // move the RHS from oldRhsIndex -> newRhsIndex
+                newT[i, newRhsIndex] = tableau[i, oldRhsIndex];
             }
 
-            // Copy RHS values into new last column
-            for (int i = 0; i < oldRows; i++)
-            {
-                newTableau[i, oldCols] = tableau[i, rhsIndex];
-            }
+            // Build the new cut row (index = oldRows)
+            // coefficients (negative fractional parts) for all decision/slack columns (excluding RHS)
+            for (int j = 0; j < oldRhsIndex; j++)
+                newT[oldRows, j] = -FractionalPart(tableau[cutRow, j]);
 
-            // Build the cut row
-            for (int j = 0; j < rhsIndex; j++)
-            {
-                double coeff = tableau[cutRow, j];
-                newTableau[oldRows, j] = -FractionalPart(coeff); // negative fractional part
-            }
+            // set the NEW slack column coefficient to +1
+            newT[oldRows, oldRhsIndex] = 1.0;
 
-            // Slack variable coefficient = 1
-            newTableau[oldRows, oldCols - 1] = 1;
+            // RHS = - fractional part of the original RHS
+            newT[oldRows, newRhsIndex] = -FractionalPart(tableau[cutRow, oldRhsIndex]);
 
-            // RHS = - fractional part of original RHS
-            double rhs = tableau[cutRow, rhsIndex];
-            newTableau[oldRows, oldCols] = -FractionalPart(rhs);
-
-            return newTableau;
+            return newT;
         }
+
 
 
         //Dual Simplex programming
@@ -271,7 +273,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
 
         // optimality check Dual Simplex
 
-        private bool OptimalityCheckDualS(double[,] tableau)
+        private bool OptimalityCheckDualS(ref double[,] tableau)
         {
             int rows = tableau.GetLength(0);
             int cols = tableau.GetLength(1);
@@ -306,9 +308,9 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 }
             }
 
-            // If we reach here → all RHS are ≥ 0
+            //Here all RHS are ≥ 0
             Console.WriteLine("Dual Simplex: Feasible solution found.");
-            // Here you would normally call OptimalityCheckPrimal(tableau) and maybe PrintAnswersToTxt()
+           
             return true; // solution feasible
         }
 
