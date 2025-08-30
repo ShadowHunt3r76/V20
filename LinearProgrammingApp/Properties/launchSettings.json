@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "LinearProgrammingApp": {
+      "commandName": "Project",
+      "commandLineArgs": "\"C:\\Users\\susan\\LPR381_Project\\LinearProgrammingApp\\bin\\Debug\\net9.0\\testmodel.txt\""
+    }
+  }
+}

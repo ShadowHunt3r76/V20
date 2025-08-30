@@ -24,7 +24,7 @@ namespace CuttingPlaneAlgorithm
             SaveIteration(tableau);
 
             bool integerSolutionFound = false;
-            int maxIter = 50;
+            int maxIter = 250;
             int iter = 0;
 
             //Cutting plane loop
