@@ -13,13 +13,11 @@ namespace LinearProgrammingApp
             if (args.Length == 0)
             {
                 Console.WriteLine("Usage: LinearProgrammingApp <inputfile>");
-
                 return;
             }
             
             try
             {
-
                 string inputFile = args[0];
                 var parser = new ParsedLinearProgrammingModel.UniversalLinearProgrammingParser();
                 var parsedModel = parser.ParseFromFile(inputFile);
@@ -92,31 +90,47 @@ namespace LinearProgrammingApp
                         string objValue = node.Solution?.Status == "Optimal" ? $"{node.Solution.ObjectiveValue:F3}" : "N/A";
                         Console.WriteLine($"Node {node.Id}: {node.BranchingConstraint} → Status: {status}, Obj: {objValue}");
                     }
+
+                    // Generate output file for Branch and Bound
+                    OutputFileGenerator.GenerateBranchAndBoundOutput(parsedModel, bbSolution, "branch_bound_main_output.txt");
+                    Console.WriteLine("\nBranch and Bound output file generated: branch_bound_main_output.txt");
                 }
                 else
                 {
                     // Regular simplex algorithms
                     LinearProgramSolution solution = null;
+                    string algorithmName = "";
+                    
                     if (key.KeyChar == '2')
                     {
                         var revisedSolver = new RevisedPrimalSimplexSolver();
                         solution = revisedSolver.Solve(canonicalModel);
+                        algorithmName = "Revised Primal Simplex";
+                        
+                        // Generate output file
+                        OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution, "revised_simplex_main_output.txt");
+                        Console.WriteLine("\nOutput file generated: revised_simplex_main_output.txt");
                     }
                     else
                     {
                         var primalSolver = new PrimalSimplexSolver();
                         solution = primalSolver.Solve(canonicalModel);
+                        algorithmName = "Primal Simplex";
+                        
+                        // Generate output file
+                        OutputFileGenerator.GeneratePrimalSimplexOutput(parsedModel, solution, "primal_simplex_main_output.txt");
+                        Console.WriteLine("\nOutput file generated: primal_simplex_main_output.txt");
                     }
 
-                    // Output results
+                    // Output results to console
                     Console.WriteLine($"Status: {solution.Status}");
                     if (solution.SolutionVector != null)
                     {
                         Console.WriteLine("Solution vector:");
                         for (int i = 0; i < solution.SolutionVector.Length; i++)
-                            Console.WriteLine($"x{i + 1} = {solution.SolutionVector[i]:F4}");
+                            Console.WriteLine($"x{i + 1} = {solution.SolutionVector[i]:F3}");
                     }
-                    Console.WriteLine($"Objective value: {solution.ObjectiveValue:F4}");
+                    Console.WriteLine($"Objective value: {solution.ObjectiveValue:F3}");
 
                     if (hasIntegerVariables)
                     {
@@ -134,6 +148,5 @@ namespace LinearProgrammingApp
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
             }
         }
-        
     }
 }

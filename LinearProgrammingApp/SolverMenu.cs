@@ -76,6 +76,10 @@ namespace LinearProgrammingApp
                 }
             }
             Console.WriteLine($"Objective Value = {solution.ObjectiveValue:F3}");
+
+            // Generate output file
+            OutputFileGenerator.GeneratePrimalSimplexOutput(parsedModel, solution);
+            Console.WriteLine("\nOutput file generated: primal_simplex_output.txt");
         }
 
         private void RunRevisedPrimalSimplex(ParsedLinearProgrammingModel parsedModel)
@@ -94,6 +98,10 @@ namespace LinearProgrammingApp
                 }
             }
             Console.WriteLine($"Objective Value = {solution.ObjectiveValue:F3}");
+
+            // Generate output file
+            OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution);
+            Console.WriteLine("\nOutput file generated: revised_simplex_output.txt");
         }
 
         private void RunCuttingPlane(ParsedLinearProgrammingModel parsedModel)
@@ -116,6 +124,10 @@ namespace LinearProgrammingApp
             }
 
             Console.WriteLine("\nTableau iterations were written to cuttingplane_output.txt");
+            
+            // Also generate using our comprehensive output format
+            OutputFileGenerator.GenerateComprehensiveOutput(parsedModel, solution, "Cutting Plane", "cutting_plane_comprehensive_output.txt");
+            Console.WriteLine("Comprehensive output file generated: cutting_plane_comprehensive_output.txt");
         }
 
         private void RunBranchAndBound(ParsedLinearProgrammingModel parsedModel)
@@ -135,6 +147,10 @@ namespace LinearProgrammingApp
             Console.WriteLine($"Best Objective Value = {solution.BestObjectiveValue:F3}");
             Console.WriteLine($"Total Nodes Explored: {solution.TotalNodesExplored}");
             Console.WriteLine($"Total Nodes Fathomed: {solution.TotalNodesFathomed}");
+
+            // Generate output file for Branch and Bound
+            OutputFileGenerator.GenerateBranchAndBoundOutput(parsedModel, solution);
+            Console.WriteLine("\nOutput file generated: branch_bound_output.txt");
         }
 
         private void RunKnapsack()
