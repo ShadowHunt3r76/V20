@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LinearProgramming.Algorithms;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -10,7 +11,7 @@ namespace CuttingPlaneAlgorithm
     {
 
 
-        public void CuttingPlaneSolve(LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel model)
+        public LinearProgramSolution CuttingPlaneSolve(LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel model)
         {
             //Solve LP relaxation using primal simplex
             var simplex = new LinearProgramming.Algorithms.PrimalSimplexSolver();
@@ -56,8 +57,52 @@ namespace CuttingPlaneAlgorithm
 
             //Print final results
             PrintAnswersToTxt("cuttingplane_output.txt");
+
+            return new LinearProgramSolution
+            {
+                Status = integerSolutionFound ? "Optimal Integer Solution (Cutting Plane)" : "Max iterations reached",
+                SolutionVector = ExtractSolution(tableau, numOriginalVars),
+                ObjectiveValue = tableau[0, tableau.GetLength(1) - 1],
+                OptimalTable = tableau,
+                TableHistory = CuttingPlaneHistory
+            };
         }
 
+        private double[] ExtractSolution(double[,] tableau, int numOriginalVars)
+        {
+            int rows = tableau.GetLength(0);
+            int cols = tableau.GetLength(1);
+            int rhsIndex = cols - 1;
+
+            double[] solution = new double[numOriginalVars];
+
+            for (int j = 0; j < numOriginalVars; j++)
+            {
+                int basicRow = -1;
+                bool isBasic = true;
+
+                for (int i = 1; i < rows; i++) // skip objective row
+                {
+                    if (Math.Abs(tableau[i, j] - 1.0) < 1e-6)
+                    {
+                        if (basicRow == -1) basicRow = i;
+                        else { isBasic = false; break; }
+                    }
+                    else if (Math.Abs(tableau[i, j]) > 1e-6)
+                    {
+                        isBasic = false;
+                        break;
+                    }
+                }
+
+                if (isBasic && basicRow != -1)
+                    solution[j] = tableau[basicRow, rhsIndex];
+                else
+                    solution[j] = 0.0;
+            }
+
+            return solution;
+        }
 
         //cutting plane pivot row selecection
         private int SelectPivotRowCuttingP(double[,] tableau, int numOriginalVariables)

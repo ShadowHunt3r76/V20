@@ -138,7 +138,8 @@ namespace LinearProgramming.Algorithms
             return newTab;
         }
 
-        private double[] ExtractSolution(double[,] tableau)
+        //made public, so code is reusable; implemented in cutting plane
+        public double[] ExtractSolution(double[,] tableau)
         {
             int rows = tableau.GetLength(0);
             int cols = tableau.GetLength(1);

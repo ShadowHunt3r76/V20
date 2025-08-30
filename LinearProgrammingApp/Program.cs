@@ -13,14 +13,21 @@ namespace LinearProgrammingApp
             if (args.Length == 0)
             {
                 Console.WriteLine("Usage: LinearProgrammingApp <inputfile>");
+
                 return;
             }
-            string inputFile = args[0];
+            
             try
             {
+
+                string inputFile = args[0];
                 var parser = new ParsedLinearProgrammingModel.UniversalLinearProgrammingParser();
                 var parsedModel = parser.ParseFromFile(inputFile);
                 var canonicalModel = parsedModel.ToCanonicalForm();
+
+                //Call menu
+                var solverMenu = new SolverMenu();
+                solverMenu.RunMenu(parsedModel);
 
                 // Check if the problem has integer/binary variables
                 bool hasIntegerVariables = parsedModel.Variables.Any(v => v.Type == VariableType.Integer || v.Type == VariableType.Binary);
@@ -127,5 +134,6 @@ namespace LinearProgrammingApp
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
             }
         }
+        
     }
 }
