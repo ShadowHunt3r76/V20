@@ -1,6 +1,9 @@
-﻿using System;
+using System;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms;
+using LinearProgramming.Algorithms.CuttingPlane;
+using LinearProgramming.Algorithms.BranchAndBound;
+using LinearProgramming.Algorithms.PrimalSimplex;
 
 namespace LinearProgrammingApp
 {
@@ -100,14 +103,14 @@ namespace LinearProgrammingApp
             Console.WriteLine($"Objective Value = {solution.ObjectiveValue:F3}");
 
             // Generate output file
-            OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution);
+            OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution, "revised_simplex_output.txt");
             Console.WriteLine("\nOutput file generated: revised_simplex_output.txt");
         }
 
         private void RunCuttingPlane(ParsedLinearProgrammingModel parsedModel)
         {
             var canonicalModel = parsedModel.ToCanonicalForm();
-            var solver = new CuttingPlaneAlgorithm.CuttingPlane();
+            var solver = new CuttingPlane();
             var solution = solver.CuttingPlaneSolve(canonicalModel);
 
             Console.WriteLine("\n=== CUTTING PLANE RESULTS ===");
@@ -130,7 +133,7 @@ namespace LinearProgrammingApp
             Console.WriteLine("Comprehensive output file generated: cutting_plane_comprehensive_output.txt");
         }
 
-        private void RunBranchAndBound(ParsedLinearProgrammingModel parsedModel)
+        public void RunBranchAndBound(ParsedLinearProgrammingModel parsedModel)
         {
             var solver = new BranchAndBoundSolver();
             var solution = solver.Solve(parsedModel);

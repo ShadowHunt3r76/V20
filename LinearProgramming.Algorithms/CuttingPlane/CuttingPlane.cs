@@ -1,11 +1,10 @@
-﻿using LinearProgramming.Algorithms;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using LinearProgramming.Parsing;
+using LinearProgramming.Algorithms.PrimalSimplex;
 
-namespace CuttingPlaneAlgorithm
+namespace LinearProgramming.Algorithms.CuttingPlane
 {
     public class CuttingPlane
     {
@@ -14,7 +13,7 @@ namespace CuttingPlaneAlgorithm
         public LinearProgramSolution CuttingPlaneSolve(LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel model)
         {
             //Solve LP relaxation using primal simplex
-            var simplex = new LinearProgramming.Algorithms.PrimalSimplexSolver();
+            var simplex = new PrimalSimplexSolver();
             var solution = simplex.Solve(model);
             double[,] tableau = solution.OptimalTable;
 

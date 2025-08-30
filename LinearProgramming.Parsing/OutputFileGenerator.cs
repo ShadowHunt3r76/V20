@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using LinearProgramming.Algorithms;
 
 namespace LinearProgramming.Parsing
 {
@@ -18,7 +17,7 @@ namespace LinearProgramming.Parsing
         /// <param name="parsedModel">The original parsed model</param>
         /// <param name="solution">The solution from Primal Simplex</param>
         /// <param name="outputPath">Output file path (optional, defaults to "primal_simplex_output.txt")</param>
-        public static void GeneratePrimalSimplexOutput(ParsedLinearProgrammingModel parsedModel, LinearProgramSolution solution, string outputPath = "primal_simplex_output.txt")
+        public static void GeneratePrimalSimplexOutput(ParsedLinearProgrammingModel parsedModel, ILinearProgramSolution solution, string outputPath = "primal_simplex_output.txt")
         {
             using (StreamWriter writer = new StreamWriter(outputPath))
             {
@@ -47,7 +46,7 @@ namespace LinearProgramming.Parsing
         /// <param name="parsedModel">The original parsed model</param>
         /// <param name="solution">The solution from Revised Primal Simplex</param>
         /// <param name="outputPath">Output file path (optional, defaults to "revised_simplex_output.txt")</param>
-        public static void GenerateRevisedSimplexOutput(ParsedLinearProgrammingModel parsedModel, LinearProgramSolution solution, string outputPath = "revised_simplex_output.txt")
+        public static void GenerateRevisedSimplexOutput(ParsedLinearProgrammingModel parsedModel, ILinearProgramSolution solution, string outputPath = "revised_simplex_output.txt")
         {
             using (StreamWriter writer = new StreamWriter(outputPath))
             {
@@ -115,7 +114,7 @@ namespace LinearProgramming.Parsing
         /// <param name="solution">The algorithm solution</param>
         /// <param name="algorithmName">Name of the algorithm used</param>
         /// <param name="outputPath">Output file path</param>
-        public static void GenerateComprehensiveOutput(ParsedLinearProgrammingModel parsedModel, LinearProgramSolution solution, string algorithmName, string outputPath)
+        public static void GenerateComprehensiveOutput(ParsedLinearProgrammingModel parsedModel, ILinearProgramSolution solution, string algorithmName, string outputPath)
         {
             using (StreamWriter writer = new StreamWriter(outputPath))
             {
@@ -251,7 +250,7 @@ namespace LinearProgramming.Parsing
         /// <summary>
         /// Writes all tableau iterations to the output file.
         /// </summary>
-        private static void WriteTableauIterations(StreamWriter writer, LinearProgramSolution solution, string algorithmName)
+        private static void WriteTableauIterations(StreamWriter writer, ILinearProgramSolution solution, string algorithmName)
         {
             writer.WriteLine($"=== {algorithmName.ToUpper()} TABLEAU ITERATIONS ===");
             
@@ -325,7 +324,7 @@ namespace LinearProgramming.Parsing
         /// <summary>
         /// Writes the final solution results to the output file.
         /// </summary>
-        private static void WriteFinalResults(StreamWriter writer, LinearProgramSolution solution)
+        private static void WriteFinalResults(StreamWriter writer, ILinearProgramSolution solution)
         {
             writer.WriteLine("=== FINAL RESULTS ===");
             writer.WriteLine($"Status: {solution.Status}");

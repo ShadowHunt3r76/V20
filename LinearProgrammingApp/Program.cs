@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.Linq;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms;
+using LinearProgramming.Algorithms.BranchAndBound;
+using LinearProgramming.Algorithms.PrimalSimplex;
 
 namespace LinearProgrammingApp
 {
@@ -53,89 +55,46 @@ namespace LinearProgrammingApp
                 if (hasIntegerVariables && key.KeyChar == '3')
                 {
                     // Branch and Bound Algorithm
-                    var branchAndBoundSolver = new BranchAndBoundSolver();
+                    var solver = new SolverMenu();
+                    solver.RunBranchAndBound(parsedModel);
+                    return;
+                }
+                
+                // Regular simplex algorithms
+                LinearProgramSolution solution = null;
+                
+                if (key.KeyChar == '2')
+                {
+                    var revisedSolver = new RevisedPrimalSimplexSolver();
+                    solution = revisedSolver.Solve(canonicalModel);
                     
-                    // Display canonical form first
-                    Console.WriteLine("=== CANONICAL FORM ===");
-                    branchAndBoundSolver.DisplayCanonicalForm(canonicalModel);
-                    
-                    Console.WriteLine("=== STARTING BRANCH AND BOUND ALGORITHM ===");
-                    var bbSolution = branchAndBoundSolver.Solve(parsedModel);
-
-                    // Display results
-                    Console.WriteLine("\n=== BRANCH AND BOUND RESULTS ===");
-                    Console.WriteLine($"Overall Status: {bbSolution.OverallStatus}");
-                    Console.WriteLine($"Total Nodes Explored: {bbSolution.TotalNodesExplored}");
-                    Console.WriteLine($"Total Nodes Fathomed: {bbSolution.TotalNodesFathomed}");
-
-                    if (bbSolution.BestCandidate != null)
-                    {
-                        Console.WriteLine($"\n=== BEST INTEGER SOLUTION ===");
-                        Console.WriteLine($"Objective Value: {bbSolution.BestObjectiveValue:F3}");
-                        Console.WriteLine("Solution Vector:");
-                        if (bbSolution.BestSolution != null)
-                        {
-                            for (int i = 0; i < bbSolution.BestSolution.Length; i++)
-                            {
-                                Console.WriteLine($"x{i + 1} = {bbSolution.BestSolution[i]:F3}");
-                            }
-                        }
-                    }
-
-                    // Display all nodes summary
-                    Console.WriteLine("\n=== ALL NODES SUMMARY ===");
-                    foreach (var node in bbSolution.AllNodes.OrderBy(n => n.Id))
-                    {
-                        string status = node.IsFathomed ? $"FATHOMED ({node.FathomReason})" : node.Solution?.Status ?? "Not Processed";
-                        string objValue = node.Solution?.Status == "Optimal" ? $"{node.Solution.ObjectiveValue:F3}" : "N/A";
-                        Console.WriteLine($"Node {node.Id}: {node.BranchingConstraint} → Status: {status}, Obj: {objValue}");
-                    }
-
-                    // Generate output file for Branch and Bound
-                    OutputFileGenerator.GenerateBranchAndBoundOutput(parsedModel, bbSolution, "branch_bound_main_output.txt");
-                    Console.WriteLine("\nBranch and Bound output file generated: branch_bound_main_output.txt");
+                    // Generate output file
+                    OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution, "revised_simplex_main_output.txt");
+                    Console.WriteLine("\nOutput file generated: revised_simplex_main_output.txt");
                 }
                 else
                 {
-                    // Regular simplex algorithms
-                    LinearProgramSolution solution = null;
-                    string algorithmName = "";
+                    var primalSolver = new PrimalSimplexSolver();
+                    solution = primalSolver.Solve(canonicalModel);
                     
-                    if (key.KeyChar == '2')
-                    {
-                        var revisedSolver = new RevisedPrimalSimplexSolver();
-                        solution = revisedSolver.Solve(canonicalModel);
-                        algorithmName = "Revised Primal Simplex";
-                        
-                        // Generate output file
-                        OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution, "revised_simplex_main_output.txt");
-                        Console.WriteLine("\nOutput file generated: revised_simplex_main_output.txt");
-                    }
-                    else
-                    {
-                        var primalSolver = new PrimalSimplexSolver();
-                        solution = primalSolver.Solve(canonicalModel);
-                        algorithmName = "Primal Simplex";
-                        
-                        // Generate output file
-                        OutputFileGenerator.GeneratePrimalSimplexOutput(parsedModel, solution, "primal_simplex_main_output.txt");
-                        Console.WriteLine("\nOutput file generated: primal_simplex_main_output.txt");
-                    }
+                    // Generate output file
+                    OutputFileGenerator.GeneratePrimalSimplexOutput(parsedModel, solution, "primal_simplex_main_output.txt");
+                    Console.WriteLine("\nOutput file generated: primal_simplex_main_output.txt");
+                }
 
-                    // Output results to console
-                    Console.WriteLine($"Status: {solution.Status}");
-                    if (solution.SolutionVector != null)
-                    {
-                        Console.WriteLine("Solution vector:");
-                        for (int i = 0; i < solution.SolutionVector.Length; i++)
-                            Console.WriteLine($"x{i + 1} = {solution.SolutionVector[i]:F3}");
-                    }
-                    Console.WriteLine($"Objective value: {solution.ObjectiveValue:F3}");
+                // Output results to console
+                Console.WriteLine($"Status: {solution.Status}");
+                if (solution.SolutionVector != null)
+                {
+                    Console.WriteLine("Solution vector:");
+                    for (int i = 0; i < solution.SolutionVector.Length; i++)
+                        Console.WriteLine($"x{i + 1} = {solution.SolutionVector[i]:F3}");
+                }
+                Console.WriteLine($"Objective value: {solution.ObjectiveValue:F3}");
 
-                    if (hasIntegerVariables)
-                    {
-                        Console.WriteLine("\nNote: This is the LP relaxation solution. For integer solution, use Branch and Bound (option 3).");
-                    }
+                if (hasIntegerVariables)
+                {
+                    Console.WriteLine("\nNote: This is the LP relaxation solution. For integer solution, use Branch and Bound (option 3).");
                 }
             }
             catch (ParsedLinearProgrammingModel.LinearProgrammingParseException ex)

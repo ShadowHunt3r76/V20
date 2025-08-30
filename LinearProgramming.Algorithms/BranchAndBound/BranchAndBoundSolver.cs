@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using LinearProgramming.Parsing;
+using LinearProgramming.Algorithms.PrimalSimplex;
+using static LinearProgramming.Algorithms.PrimalSimplex.MatrixUtils;
 
-namespace LinearProgramming.Algorithms
+namespace LinearProgramming.Algorithms.BranchAndBound
 {
     using CanonicalLinearProgrammingModel = LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel;
+    using LinearProgramSolution = LinearProgramming.Algorithms.PrimalSimplex.LinearProgramSolution;
 
     /// <summary>
     /// Represents a node in the branch and bound tree
@@ -62,7 +65,7 @@ namespace LinearProgramming.Algorithms
             
             // Convert to canonical form and store for display
             solution.CanonicalForm = originalModel.ToCanonicalForm();
-            solution.CanonicalMatrix = ConvertToMatrix(solution.CanonicalForm.CoefficientMatrix);
+            solution.CanonicalMatrix = MatrixUtils.ConvertToMatrix(solution.CanonicalForm.CoefficientMatrix);
             
             // Check if any variables are integer or binary
             bool hasIntegerVariables = originalModel.Variables.Any(v => v.Type == VariableType.Integer || v.Type == VariableType.Binary);
@@ -389,25 +392,6 @@ namespace LinearProgramming.Algorithms
                 ObjectiveCoefficients = (double[])original.ObjectiveCoefficients.Clone(),
                 VariableTypes = (VariableType[])original.VariableTypes.Clone()
             };
-        }
-
-        /// <summary>
-        /// Converts jagged array to 2D array for display purposes
-        /// </summary>
-        private double[,] ConvertToMatrix(double[][] jaggedArray)
-        {
-            int rows = jaggedArray.Length;
-            int cols = jaggedArray[0].Length;
-            double[,] matrix = new double[rows, cols];
-            
-            for (int i = 0; i < rows; i++)
-            {
-                for (int j = 0; j < cols; j++)
-                {
-                    matrix[i, j] = jaggedArray[i][j];
-                }
-            }
-            return matrix;
         }
 
         /// <summary>
