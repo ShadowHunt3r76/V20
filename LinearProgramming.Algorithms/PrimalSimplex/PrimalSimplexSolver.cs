@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms.PrimalSimplex;
+using LinearProgramming.Algorithms.Utils;
 
 // Use the outer CanonicalLinearProgrammingModel from LinearProgramming.Parsing
 using CanonicalLinearProgrammingModel = LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel;
@@ -73,9 +74,9 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             solution.VariableNames = _variableNames;
             
             // Display problem information
-            Console.WriteLine("\n=== Solving Linear Program ===");
+            Console.WriteLine(OutputFormatter.CreateHeader("SOLVING LINEAR PROGRAM"));
             DisplayCanonicalForm(model);
-            Console.WriteLine("\n=== Starting Primal Simplex Method ===");
+            Console.WriteLine(OutputFormatter.CreateHeader("PRIMAL SIMPLEX METHOD"));
             
             int maxIter = 1000;
             int iter = 0;
@@ -109,9 +110,14 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 solution.Iterations.Add(iteration);
                 
                 // Display iteration information
-                Console.WriteLine($"\n=== Iteration {iteration.Iteration} ===");
-                Console.WriteLine($"Entering: {_variableNames[entering]} (x{entering + 1})");
-                Console.WriteLine($"Leaving: {basis[leaving - 1]} (row {leaving})");
+                var iterationInfo = new StringBuilder();
+                iterationInfo.AppendLine(OutputFormatter.FormatKeyValue("Iteration", iteration.Iteration));
+                iterationInfo.AppendLine(OutputFormatter.FormatKeyValue("Entering Variable", $"{_variableNames[entering]} (x{entering + 1})"));
+                iterationInfo.AppendLine(OutputFormatter.FormatKeyValue("Leaving Variable", $"{basis[leaving - 1]} (row {leaving})"));
+                
+                Console.WriteLine(OutputFormatter.CreateBox(iterationInfo.ToString(), $"ITERATION {iteration.Iteration}"));
+                
+                // Display tableau
                 Console.WriteLine("\nCurrent Tableau:");
                 Console.WriteLine(TableauToString(tableau));
 
@@ -125,7 +131,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             FinalizeSolution(solution, tableau, basis, isDegenerate);
             
             // Display final solution
-            Console.WriteLine("\n=== Solution Complete ===");
+            Console.WriteLine(OutputFormatter.CreateHeader("SOLUTION COMPLETE"));
             solution.DisplaySolution();
             
             return solution;
@@ -442,94 +448,86 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
     /// </summary>
     private void DisplayCanonicalForm(CanonicalLinearProgrammingModel model)
     {
-        Console.WriteLine("\n=== Canonical Form ===");
+        var sb = new StringBuilder();
         
         // Display objective function
-        Console.Write("Maximize: ");
-        bool firstTerm = true;
-        for (int j = 0; j < model.ObjectiveCoefficients.Length; j++)
-        {
-            double coef = model.ObjectiveCoefficients[j];
-            if (Math.Abs(coef) < Epsilon) continue;
-            
-            string varName = j < model.VariableNames.Length ? model.VariableNames[j] : $"x{j + 1}";
-            
-            if (firstTerm)
-            {
-                firstTerm = false;
-                Console.Write(coef < 0 ? "-" : "");
-            }
-            else
-            {
-                Console.Write(coef < 0 ? " - " : " + ");
-            }
-            
-            double absCoef = Math.Abs(coef);
-            if (Math.Abs(absCoef - 1.0) > Epsilon)
-            {
-                Console.Write($"{absCoef} ");
-            }
-            Console.Write(varName);
-        }
-        Console.WriteLine("\n");
+        // Default to maximization if we can't determine the objective type
+        bool isMaximization = true; // Default to maximization
+        
+        sb.AppendLine(OutputFormatter.FormatKeyValue("Objective", 
+            $"{(isMaximization ? "Maximize" : "Minimize")} {FormatObjective(model.ObjectiveCoefficients, model.VariableNames)}"));
         
         // Display constraints
-        Console.WriteLine("Subject to:");
+        var constraintRows = new List<object[]>();
         for (int i = 0; i < model.CoefficientMatrix.Length; i++)
         {
-            firstTerm = true;
-            for (int j = 0; j < model.CoefficientMatrix[i].Length; j++)
-            {
-                double coef = model.CoefficientMatrix[i][j];
-                if (Math.Abs(coef) < Epsilon) continue;
-                
-                string varName = j < model.VariableNames.Length ? model.VariableNames[j] : $"x{j + 1}";
-                
-                if (firstTerm)
-                {
-                    firstTerm = false;
-                    Console.Write(coef < 0 ? "-" : "  ");
-                }
-                else
-                {
-                    Console.Write(coef < 0 ? " - " : " + ");
-                }
-                
-                double absCoef = Math.Abs(coef);
-                if (Math.Abs(absCoef - 1.0) > Epsilon)
-                {
-                    Console.Write($"{absCoef} ");
-                }
-                Console.Write(varName);
-            }
-            
-            // Display constraint type and RHS
-            string constraintType = "";
-            switch (model.ConstraintTypes[i])
-            {
-                case ConstraintType.LessThanOrEqual:
-                    constraintType = "<=";
-                    break;
-                case ConstraintType.GreaterThanOrEqual:
-                    constraintType = ">=";
-                    break;
-                case ConstraintType.Equal:
-                    constraintType = "=";
-                    break;
-            }
-            
-            Console.WriteLine($" {constraintType} {model.RHSVector[i]}");
+            string constraint = FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RHSVector[i], model.VariableNames);
+            constraintRows.Add(new object[] { i + 1, constraint });
         }
+        
+        sb.AppendLine("\nConstraints:");
+        sb.AppendLine(OutputFormatter.CreateTable(
+            new[] { "#", "Constraint" },
+            constraintRows
+        ));
         
         // Display variable types
-        Console.WriteLine("\nVariable types:");
-        for (int j = 0; j < model.VariableTypes.Length; j++)
+        var varTypes = model.VariableTypes.Select((t, i) => 
+            new object[] { 
+                i < model.VariableNames.Length ? model.VariableNames[i] : $"x{i + 1}",
+                t.ToString() 
+            });
+            
+        sb.AppendLine("\nVariable Types:");
+        sb.AppendLine(OutputFormatter.CreateTable(
+            new[] { "Variable", "Type" },
+            varTypes
+        ));
+        
+        Console.WriteLine(OutputFormatter.CreateBox(sb.ToString(), "CANONICAL FORM"));
+    }
+    
+    private string FormatObjective(double[] coefficients, string[] variableNames = null)
+    {
+        var terms = new List<string>();
+        for (int i = 0; i < coefficients.Length; i++)
         {
-            string varName = j < model.VariableNames.Length ? model.VariableNames[j] : $"x{j + 1}";
-            Console.WriteLine($"{varName}: {model.VariableTypes[j]}");
+            if (Math.Abs(coefficients[i]) > Epsilon)
+            {
+                string sign = coefficients[i] >= 0 ? " + " : " - ";
+                string coef = Math.Abs(coefficients[i]) == 1 ? "" : $"{Math.Abs(coefficients[i])}";
+                string varName = variableNames != null && i < variableNames.Length ? variableNames[i] : $"x{i + 1}";
+                terms.Add($"{sign}{coef}{varName}".TrimStart('+', ' '));
+            }
+        }
+        return string.Join(" ", terms);
+    }
+    
+    private string FormatConstraint(double[] coefficients, ConstraintType type, double rhs, string[] variableNames = null)
+    {
+        var terms = new List<string>();
+        for (int i = 0; i < coefficients.Length; i++)
+        {
+            if (Math.Abs(coefficients[i]) > Epsilon)
+            {
+                string sign = coefficients[i] >= 0 ? " + " : " - ";
+                string coef = Math.Abs(coefficients[i]) == 1 ? "" : $"{Math.Abs(coefficients[i])}";
+                string varName = variableNames != null && i < variableNames.Length ? variableNames[i] : $"x{i + 1}";
+                terms.Add($"{sign}{coef}{varName}".TrimStart('+', ' '));
+            }
         }
         
-        Console.WriteLine("\n" + new string('=', 80) + "\n");
+        string constraint = string.Join(" ", terms);
+        
+        string operatorStr = type switch
+        {
+            ConstraintType.LessThanOrEqual => "≤",
+            ConstraintType.GreaterThanOrEqual => "≥",
+            ConstraintType.Equal => "=",
+            _ => "?"
+        };
+        
+        return $"{constraint} {operatorStr} {rhs}";
     }
 
     private double[,] BuildInitialTableau(CanonicalLinearProgrammingModel model)
@@ -805,13 +803,13 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             
             // Print separator after objective row
             if (i == 0)
-        {
-            sb.Append(new string('-', 10 * (cols + 1) + 5));
-            sb.AppendLine();
+            {
+                sb.Append(new string('-', 10 * (cols + 1) + 5));
+                sb.AppendLine();
+            }
         }
-    }
-    
-    return sb.ToString();
+        
+        return sb.ToString();
     }
     
     /// <summary>
@@ -866,5 +864,5 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             }
         }
     }
-} // End of Pivot method
-} // Closing class PrimalSimplexSolver
+}
+}

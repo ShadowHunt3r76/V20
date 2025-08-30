@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms.PrimalSimplex;
+using LinearProgramming.Algorithms.Utils;
 using static LinearProgramming.Algorithms.PrimalSimplex.MatrixUtils;
 
 namespace LinearProgramming.Algorithms.BranchAndBound
@@ -195,10 +196,29 @@ namespace LinearProgramming.Algorithms.BranchAndBound
                 solution.OverallStatus = "No Integer Solution Exists";
             }
 
-            Console.WriteLine($"\n=== BRANCH AND BOUND COMPLETE ===");
-            Console.WriteLine($"Total Nodes Explored: {solution.TotalNodesExplored}");
-            Console.WriteLine($"Total Nodes Fathomed: {solution.TotalNodesFathomed}");
-            Console.WriteLine($"Overall Status: {solution.OverallStatus}");
+            // Display the complete branch and bound tree
+            DisplayBranchAndBoundTree(solution);
+            
+            // Display the path to the best solution
+            if (solution.BestCandidate != null)
+            {
+                DisplaySolutionPath(solution);
+            }
+            
+            var results = new List<object[]>
+            {
+                new object[] { "Total Nodes Explored", solution.TotalNodesExplored },
+                new object[] { "Total Nodes Fathomed", solution.TotalNodesFathomed },
+                new object[] { "Best Integer Solution", solution.BestObjectiveValue.ToString("F3") },
+                new object[] { "Status", solution.OverallStatus }
+            };
+
+            var table = OutputFormatter.CreateTable(
+                new[] { "Metric", "Value" },
+                results
+            );
+
+            Console.WriteLine(OutputFormatter.CreateBox(table, "BRANCH AND BOUND RESULTS"));
 
             return solution;
         }
@@ -395,14 +415,168 @@ namespace LinearProgramming.Algorithms.BranchAndBound
         }
 
         /// <summary>
-        /// Utility method to print solution vector
+        /// Displays the branch and bound tree structure
+        /// </summary>
+        private void DisplayBranchAndBoundTree(BranchAndBoundSolution solution)
+        {
+            Console.WriteLine("\n╔══════════════════════════════════════════════════════╗");
+            Console.WriteLine("║               BRANCH AND BOUND TREE                   ║");
+            Console.WriteLine("╚══════════════════════════════════════════════════════╝");
+            
+            // Group nodes by depth
+            var nodesByDepth = solution.AllNodes.GroupBy(n => n.Depth).OrderBy(g => g.Key);
+            
+            foreach (var depthGroup in nodesByDepth)
+            {
+                Console.Write($"\nDepth {depthGroup.Key}: ");
+                
+                foreach (var node in depthGroup.OrderBy(n => n.Id))
+                {
+                    Console.ForegroundColor = GetNodeColor(node, solution.BestCandidate);
+                    string nodeStatus = GetNodeStatusSymbol(node);
+                    Console.Write($"[{nodeStatus}{node.Id}] ");
+                    Console.ResetColor();
+                }
+                
+                // Draw connecting lines for the next level
+                if (depthGroup.Key < nodesByDepth.Max(g => g.Key))
+                {
+                    Console.WriteLine("\n" + new string(' ', 8) + 
+                        string.Join("   ", 
+                            depthGroup.SelectMany(n => 
+                                solution.AllNodes.Where(c => c.ParentId == n.Id)
+                                    .Select(c => $"│  ")
+                            )
+                        )
+                    );
+                    
+                    Console.WriteLine(new string(' ', 8) + 
+                        string.Join("   ", 
+                            depthGroup.SelectMany(n => 
+                                solution.AllNodes.Where(c => c.ParentId == n.Id)
+                                    .Select(c => n.Id == solution.AllNodes.Last(n2 => n2.Depth == depthGroup.Key).Id ? "└─" : "├─")
+                            )
+                        )
+                    );
+                }
+            }
+            
+            // Display legend
+            Console.WriteLine("\n\n╔══════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                     LEGEND                            ║");
+            Console.WriteLine("╠══════════════════════════════════════════════════════╣");
+            Console.Write("║ ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("●");
+            Console.ResetColor();
+            Console.WriteLine(" - Best Integer Solution  ");
+            Console.Write("║ ");
+            Console.ForegroundColor = ConsoleColor.Blue;
+            Console.Write("○");
+            Console.ResetColor();
+            Console.WriteLine(" - Active Node  ");
+            Console.Write("║ ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write("✗");
+            Console.ResetColor();
+            Console.WriteLine(" - Fathomed Node  ");
+            Console.Write("║ ");
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.Write("◌");
+            Console.ResetColor();
+            Console.WriteLine(" - Unexplored Node  ");
+            Console.WriteLine("╚══════════════════════════════════════════════════════╝");
+        }
+        
+        /// <summary>
+        /// Displays the path from root to the best solution
+        /// </summary>
+        private void DisplaySolutionPath(BranchAndBoundSolution solution)
+        {
+            Console.WriteLine("\n╔══════════════════════════════════════════════════════╗");
+            Console.WriteLine("║               PATH TO BEST SOLUTION                   ║");
+            Console.WriteLine("╚══════════════════════════════════════════════════════╝");
+            
+            // Reconstruct the path from best node to root
+            var path = new List<BranchAndBoundNode>();
+            var currentNode = solution.BestCandidate;
+            
+            while (currentNode != null)
+            {
+                path.Insert(0, currentNode);
+                currentNode = solution.AllNodes.FirstOrDefault(n => n.Id == currentNode.ParentId);
+            }
+            
+            // Display the path
+            for (int i = 0; i < path.Count; i++)
+            {
+                var node = path[i];
+                string prefix = new string(' ', i * 2);
+                string connector = i > 0 ? "└─ " : "";
+                
+                Console.ForegroundColor = GetNodeColor(node, solution.BestCandidate);
+                Console.Write($"{prefix}{connector}[{node.Id}] ");
+                Console.ResetColor();
+                
+                if (i > 0)
+                {
+                    Console.WriteLine($"{node.BranchingConstraint}");
+                }
+                else
+                {
+                    Console.WriteLine("Root");
+                }
+                
+                if (i == path.Count - 1) // Last node (best solution)
+                {
+                    Console.WriteLine($"{new string(' ', (i + 1) * 2 + 2)}Objective: {node.Solution.ObjectiveValue:F3}");
+                    Console.WriteLine($"{new string(' ', (i + 1) * 2 + 2)}Variables: {string.Join(", ", node.Solution.SolutionVector.Select((v, idx) => $"x{idx + 1} = {v:F3}"))}");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Gets the appropriate color for a node based on its status
+        /// </summary>
+        private ConsoleColor GetNodeColor(BranchAndBoundNode node, BranchAndBoundNode bestNode)
+        {
+            if (node == bestNode) return ConsoleColor.Green;
+            if (node.IsFathomed) return ConsoleColor.Red;
+            if (node.Solution != null && node.Solution.Status == "Optimal") return ConsoleColor.Blue;
+            return ConsoleColor.Gray;
+        }
+        
+        /// <summary>
+        /// Gets a symbol representing the node's status
+        /// </summary>
+        private string GetNodeStatusSymbol(BranchAndBoundNode node)
+        {
+            if (node.IsFathomed) return "✗";
+            if (node.Solution != null && node.Solution.Status == "Optimal") return "●";
+            return "◌";
+        }
+        
+        /// <summary>
+        /// Utility method to print solution vector with formatting
         /// </summary>
         private void PrintSolution(double[] solution)
         {
+            if (solution == null)
+            {
+                Console.WriteLine("No solution found.");
+                return;
+            }
+
+            Console.WriteLine("\n╔══════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                   SOLUTION VECTOR                    ║");
+            Console.WriteLine("╠══════════════════════════════════════════════════════╣");
+            
             for (int i = 0; i < solution.Length; i++)
             {
-                Console.WriteLine($"x{i + 1} = {solution[i]:F3}");
+                Console.WriteLine($"║ x{i + 1,-4} = {solution[i],-10:F6} {new string(' ', 30 - solution[i].ToString("F6").Length)}║");
             }
+            
+            Console.WriteLine("╚══════════════════════════════════════════════════════╝");
         }
 
         /// <summary>

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms.PrimalSimplex;
+using LinearProgramming.Algorithms.Utils;
 using static LinearProgramming.Parsing.ParsedLinearProgrammingModel;
 
 // Use the outer CanonicalLinearProgrammingModel from LinearProgramming.Parsing
@@ -334,44 +336,61 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         
         private void DisplayProductFormUpdate(int entering, int leaving, double[] etaVector)
         {
-            Console.WriteLine("\n=== Product Form Update ===");
-            Console.WriteLine($"Entering: {_variableNames[entering]}, Leaving: {_basisIndices[leaving]} ({_variableNames[_basisIndices[leaving]]})");
+            var sb = new StringBuilder();
             
-            // Display eta vector
-            Console.WriteLine("\nEta Vector (B^-1 * A_entering):");
-            for (int i = 0; i < etaVector.Length; i++)
-            {
-                if (Math.Abs(etaVector[i]) > EPSILON)
-                {
-                    Console.WriteLine($"  eta[{i+1}] = {etaVector[i]:F6}");
-                }
-            }
+            // Eta vector
+            sb.AppendLine("Eta Vector (η):");
+            var etaVectorRows = etaVector.Select((val, idx) => new object[] { idx + 1, val });
+            sb.AppendLine(OutputFormatter.CreateTable(
+                new[] { "Index", "Value" },
+                etaVectorRows
+            ));
             
-            // Display eta matrix
-            Console.WriteLine("\nEta Matrix (E):");
-            double[,] etaMatrix = CreateIdentityMatrix(_constraintCount);
+            // Eta matrix
+            sb.AppendLine("\nEta Matrix (E):");
+            var etaMatrixRows = new List<object[]>();
             for (int i = 0; i < _constraintCount; i++)
             {
-                if (i == leaving)
-                    etaMatrix[leaving, leaving] = 1.0 / etaVector[leaving];
-                else
-                    etaMatrix[i, leaving] = -etaVector[i] / etaVector[leaving];
-                
-                // Display row
-                Console.Write("  [");
+                var row = new object[_constraintCount + 1];
+                row[0] = $"Row {i + 1}";
                 for (int j = 0; j < _constraintCount; j++)
                 {
-                    if (j == leaving) // Highlight the column being updated
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        
-                    Console.Write($"{etaMatrix[i, j],8:F4} ");
-                    
-                    if (j == leaving)
-                        Console.ResetColor();
+                    row[j + 1] = _basisInverse[i, j].ToString("F4");
                 }
-                Console.WriteLine("]");
+                etaMatrixRows.Add(row);
             }
-            Console.ResetColor();
+            
+            var etaHeaders = new[] { "Row/Col" }
+                .Concat(Enumerable.Range(1, _constraintCount).Select(i => $"Col {i}"));
+                
+            sb.AppendLine(OutputFormatter.CreateTable(
+                etaHeaders.ToArray(),
+                etaMatrixRows
+            ));
+            
+            // Updated basis inverse
+            sb.AppendLine("\nUpdated Basis Inverse (E * B^-1):");
+            var basisInverseRows = new List<object[]>();
+            for (int i = 0; i < _constraintCount; i++)
+            {
+                var row = new object[_constraintCount + 1];
+                row[0] = $"Row {i + 1}";
+                for (int j = 0; j < _constraintCount; j++)
+                {
+                    row[j + 1] = _basisInverse[i, j].ToString("F4");
+                }
+                basisInverseRows.Add(row);
+            }
+            
+            var basisHeaders = new[] { "Row/Col" }
+                .Concat(Enumerable.Range(1, _constraintCount).Select(i => $"Col {i}"));
+                
+            sb.AppendLine(OutputFormatter.CreateTable(
+                basisHeaders.ToArray(),
+                basisInverseRows
+            ));
+            
+            Console.WriteLine(OutputFormatter.CreateBox(sb.ToString(), "PRODUCT FORM UPDATE"));
         }
         
         private void UpdateBasisPriceOut(int entering, int leaving)
@@ -398,33 +417,45 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         
         private void DisplayPriceOutIteration(int iter, int entering, int leaving, double[] reducedCosts)
         {
-            Console.WriteLine("\n=== Price Out Iteration ===");
-            Console.WriteLine($"Iteration: {iter}, Entering: {_variableNames[entering]}");
+            var sb = new StringBuilder();
             
-            if (leaving >= 0)
-                Console.WriteLine($"Leaving: {_basisIndices[leaving]} ({_variableNames[_basisIndices[leaving]]})");
+            // Simplex multipliers
+            sb.AppendLine("Simplex Multipliers (π):");
+            var simplexMultiplierRows = _simplexMultipliers.Select((val, idx) => new object[] { idx + 1, val });
                 
-            // Display reduced costs
-            Console.WriteLine("\nReduced Costs (c_j - y*A_j):");
-            for (int j = 0; j < reducedCosts.Length; j++)
+            sb.AppendLine(OutputFormatter.CreateTable(
+                new[] { "Index", "Value" },
+                simplexMultiplierRows
+            ));
+            
+            // Reduced costs
+            if (_nonBasisIndices != null && reducedCosts != null && 
+                _nonBasisIndices.Count == reducedCosts.Length)
             {
-                if (!_basisIndices.Contains(j) && Math.Abs(reducedCosts[j]) > EPSILON)
+                sb.AppendLine("\nReduced Costs (c̄):");
+                var reducedCostRows = _nonBasisIndices
+                    .Zip(reducedCosts, (name, cost) => new object[] { _variableNames[name], cost });
+                    
+                sb.AppendLine(OutputFormatter.CreateTable(
+                    new[] { "Variable", "Reduced Cost" },
+                    reducedCostRows
+                ));
+            }
+            
+            // Entering variable and column
+            if (entering >= 0 && entering < _variableNames.Length)
+            {
+                sb.AppendLine(OutputFormatter.FormatKeyValue("\nEntering Variable", 
+                    $"{_variableNames[entering]} (x{entering + 1})"));
+                
+                if (leaving >= 0)
                 {
-                    string varName = j < _variableNames.Length ? _variableNames[j] : $"s{j - _originalVarCount + 1}";
-                    Console.WriteLine($"  {varName}: {reducedCosts[j]:F6}");
+                    sb.AppendLine(OutputFormatter.FormatKeyValue("Leaving Variable", 
+                        $"{_variableNames[_basisIndices[leaving]]} (x{_basisIndices[leaving] + 1})"));
                 }
             }
             
-            // Display current basis and solution
-            Console.WriteLine("\nCurrent Basis:");
-            for (int i = 0; i < _basisIndices.Count; i++)
-            {
-                string varName = _basisIndices[i] < _variableNames.Length ? 
-                    _variableNames[_basisIndices[i]] : $"s{_basisIndices[i] - _originalVarCount + 1}";
-                Console.WriteLine($"  {varName} = {_currentSolution[_basisIndices[i]]:F4}");
-            }
-            
-            Console.WriteLine($"\nCurrent Objective: {_currentObjective:F4}\n");
+            Console.WriteLine(OutputFormatter.CreateBox(sb.ToString(), "PRICE OUT ITERATION"));
         }
         
         private double[,] MatrixMultiply(double[,] a, double[,] b)
@@ -1315,7 +1346,8 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         
         private void DisplayCanonicalForm(CanonicalLinearProgrammingModel model)
         {
-            Console.WriteLine("Canonical Form:");
+            var sb = new StringBuilder();
+            var constraintRows = new List<object[]>();
             
             // Default to maximization if we can't determine the objective type
             // In the canonical form, we'll assume maximization unless we have information to the contrary
@@ -1342,37 +1374,73 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             Console.WriteLine("Subject to:");
             for (int i = 0; i < model.CoefficientMatrix.Length; i++)
             {
-                Console.Write("  ");
-                for (int j = 0; j < model.CoefficientMatrix[i].Length; j++)
-                {
-                    if (j > 0 && model.CoefficientMatrix[i][j] >= 0)
-                        Console.Write(" + ");
-                    else if (model.CoefficientMatrix[i][j] < 0)
-                        Console.Write(" ");
-                        
-                    Console.Write($"{model.CoefficientMatrix[i][j]:F2}x{j + 1}");
-                }
-                
-                string opStr = model.ConstraintTypes[i] switch
-                {
-                    ConstraintType.LessThanOrEqual => "<=",
-                    ConstraintType.GreaterThanOrEqual => ">=",
-                    ConstraintType.Equal => "=",
-                    _ => "?"
-                };
-                
-                Console.WriteLine($" {opStr} {model.RHSVector[i]:F2}");
+                string constraint = FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RightHandSide[i]);
+                constraintRows.Add(new object[] { i + 1, constraint });
             }
             
-            // Display variable constraints
-            Console.WriteLine("Where:");
-            for (int j = 0; j < model.ObjectiveCoefficients.Length; j++)
+            sb.AppendLine("\nConstraints:");
+            sb.AppendLine(OutputFormatter.CreateTable(
+                new[] { "#", "Constraint" },
+                constraintRows
+            ));
+            
+            // Variable bounds - use length of objective coefficients as the variable count
+            int variableCount = model.ObjectiveCoefficients?.Length ?? 0;
+            var varBounds = Enumerable.Range(0, variableCount)
+                .Select(i => new object[] { $"x{i + 1}", "≥ 0" });
+                
+            sb.AppendLine("\nVariable Bounds:");
+            sb.AppendLine(OutputFormatter.CreateTable(
+                new[] { "Variable", "Bound" },
+                varBounds
+            ));
+            
+            Console.WriteLine(OutputFormatter.CreateBox(sb.ToString(), "CANONICAL FORM"));
+        }
+        
+        private string FormatObjective(double[] coefficients)
+        {
+            var terms = new List<string>();
+            for (int i = 0; i < coefficients.Length; i++)
             {
-                Console.WriteLine($"  x{j + 1} >= 0");
+                if (Math.Abs(coefficients[i]) > EPSILON)
+                {
+                    string sign = coefficients[i] >= 0 ? " + " : " - ";
+                    string coef = Math.Abs(coefficients[i]) == 1 ? "" : $"{Math.Abs(coefficients[i])} ";
+                    terms.Add($"{sign}{coef}x{i + 1}");
+                }
             }
+            
+            string result = string.Join("", terms);
+            return result.TrimStart(' ', '+');
+        }
+        
+        private string FormatConstraint(double[] coefficients, ConstraintType type, double rhs)
+        {
+            var terms = new List<string>();
+            for (int i = 0; i < coefficients.Length; i++)
+            {
+                if (Math.Abs(coefficients[i]) > EPSILON)
+                {
+                    string sign = coefficients[i] >= 0 ? " + " : " - ";
+                    string coef = Math.Abs(coefficients[i]) == 1 ? "" : $"{Math.Abs(coefficients[i])}";
+                    terms.Add($"{sign}{coef}x{i + 1}");
+                }
+            }
+            
+            string constraint = string.Join("", terms).TrimStart(' ', '+');
+            
+            string operatorStr = type switch
+            {
+                ConstraintType.LessThanOrEqual => "≤",
+                ConstraintType.GreaterThanOrEqual => "≥",
+                ConstraintType.Equal => "=",
+                _ => "?"
+            };
+            
+            return $"{constraint} {operatorStr} {rhs}";
         }
         
         #endregion
     }
 }
-
