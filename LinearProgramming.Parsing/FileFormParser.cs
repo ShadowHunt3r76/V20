@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -170,185 +170,364 @@ namespace LinearProgramming.Parsing
             while (c.Count < totalVars)
                 c.Add(0);
 
+            // Create variable names (x1, x2, ..., s1, s2, ..., a1, a2, ...)
+            var varNames = new List<string>();
+            for (int i = 0; i < n; i++)
+                varNames.Add($"x{i + 1}");
+            for (int i = 0; i < slackCount; i++)
+                varNames.Add($"s{i + 1}");
+            for (int i = 0; i < artificialCount; i++)
+                varNames.Add($"a{i + 1}");
+
+            // Get constraint types for the model
+            var constraintTypes = Constraints.Select(con => con.Type).ToArray();
+
             return new CanonicalLinearProgrammingModel
             {
                 CoefficientMatrix = A.Select(r => r.ToArray()).ToArray(),
                 RHSVector = b.ToArray(),
                 ObjectiveCoefficients = c.ToArray(),
-                VariableTypes = canonicalVarTypes.ToArray()
+                VariableTypes = canonicalVarTypes.ToArray(),
+                ConstraintTypes = constraintTypes,
+                VariableNames = varNames.ToArray()
             };
         }
 
         public class CanonicalLinearProgrammingModel
         {
+            /// <summary>
+            /// Gets or sets the coefficient matrix (A) for the constraints
+            /// </summary>
             public double[][] CoefficientMatrix { get; set; }
+
+            /// <summary>
+            /// Gets or sets the right-hand side (RHS) values (b) for the constraints
+            /// </summary>
             public double[] RHSVector { get; set; }
+
+            /// <summary>
+            /// Gets or sets the right-hand side values (b) for the constraints
+            /// This is an alias for RHSVector for backward compatibility
+            /// </summary>
+            public double[] RightHandSide 
+            { 
+                get => RHSVector;
+                set => RHSVector = value;
+            }
+
+            /// <summary>
+            /// Gets or sets the objective function coefficients (c)
+            /// </summary>
             public double[] ObjectiveCoefficients { get; set; }
+
+            /// <summary>
+            /// Gets or sets the types of variables in the model
+            /// </summary>
             public VariableType[] VariableTypes { get; set; }
+
+            /// <summary>
+            /// Gets or sets the constraint types (≤, ≥, or =)
+            /// </summary>
+            public ConstraintType[] ConstraintTypes { get; set; }
+
+            /// <summary>
+            /// Gets or sets the names of the variables
+            /// </summary>
+            public string[] VariableNames { get; set; }
         }
 
         /// <summary>
         /// Universal parser for linear programming input files and strings.
-        /// Supports both LP and IP models.
+        /// Supports both LP and IP models with the exact format specification.
         /// </summary>
         public class UniversalLinearProgrammingParser
         {
-            // Updated regex patterns to handle the exact format specification
-            private static readonly Regex ObjectiveRegex = new Regex(@"^(max|min)\s+([+-]\d+(?:\.\d+)?(?:\s+[+-]\d+(?:\.\d+)?)*)\s*$", RegexOptions.IgnoreCase);
-            private static readonly Regex ConstraintRegex = new Regex(@"^([+-]\d+(?:\.\d+)?(?:\s+[+-]\d+(?:\.\d+)?)*)\s+(<=|>=|=)\s+([+-]?\d+(?:\.\d+)?)\s*$", RegexOptions.IgnoreCase);
-            private static readonly Regex VariableTypeRegex = new Regex(@"^(\+|-|urs|int|bin)(\s+(\+|-|urs|int|bin))*$", RegexOptions.IgnoreCase);
+            // Performance optimization: Compile regex patterns once
+            private static readonly Regex ObjectiveHeaderRegex = new Regex(@"^(max|min)(\s+[+-]\s*\d+(?:\.\d+)?)+$", 
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                
+            private static readonly Regex ConstraintRegex = new Regex(
+                @"^([+-]\s*\d+(?:\.\d+)?(?:\s+[+-]\s*\d+(?:\.\d+)?)*)\s*(<=|>=|=)\s*([+-]?\d+(?:\.\d+)?)\s*$", 
+                RegexOptions.Compiled);
+                
+            private static readonly Regex VariableTypeRegex = new Regex(
+                @"^(\+|-|urs|int|bin)(\s+(\+|-|urs|int|bin))*\s*$", 
+                RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                
+            private static readonly Regex WhitespaceRegex = new Regex("\\s+", 
+                RegexOptions.Compiled);
+                
+            // Culture settings for number parsing
+            private readonly IFormatProvider _numberFormat;
+            private readonly NumberStyles _numberStyle;
+            
+            // Error messages
+            private const string InvalidObjectiveFormat = "Invalid objective format. Expected: 'max/min [+-]coeff1 [+-]coeff2 ...' (e.g., 'max +2 +3 -1')";
+            private const string InvalidConstraintFormat = "Invalid constraint format. Expected: '[+-]coeff1 [+-]coeff2 ... <=/>=/= rhs' (e.g., '+1 -2 +3 <= 4')";
+            private const string InvalidVariableTypeFormat = "Invalid variable type specification. Expected: '+ - urs int bin' (one per variable)";
+            private const string MismatchedVariableCount = "Number of variables in objective, constraints, and types must match";
+            
+            /// <summary>
+            /// Initializes a new instance of the UniversalLinearProgrammingParser class.
+            /// </summary>
+            /// <param name="useInvariantCulture">Set to true to use invariant culture for number parsing (recommended for file I/O)</param>
+            public UniversalLinearProgrammingParser(bool useInvariantCulture = true)
+            {
+                _numberFormat = useInvariantCulture ? CultureInfo.InvariantCulture : CultureInfo.CurrentCulture;
+                _numberStyle = NumberStyles.Float | NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+            }
+            // Regex patterns and error messages are already defined in the class
 
             /// <summary>
-            /// Parses a linear programming model from a text string.
-            /// Throws detailed exceptions for format errors.
+            /// Parses a linear programming model from a string.
             /// </summary>
+            /// <param name="input">Input string containing the model</param>
+            /// <returns>Parsed linear programming model</returns>
+            /// <exception cref="FormatException">If the input format is invalid</exception>
             public ParsedLinearProgrammingModel ParseFromString(string input)
             {
                 if (string.IsNullOrWhiteSpace(input))
-                    throw new LinearProgrammingParseException("Input string is empty.");
+                    throw new FormatException("Input cannot be empty");
 
-                var lines = input.Split(new string[] { "\n", "\r\n" }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(l => l.Trim()).Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
-                if (lines.Count < 3)
-                    throw new LinearProgrammingParseException("Input must have at least objective, one constraint, and variable types.");
-
-                // Parse objective
-                var objectiveLine = lines[0];
-                var objectiveParts = objectiveLine.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (objectiveParts.Length < 2)
-                    throw new LinearProgrammingParseException($"Objective function line is invalid: '{objectiveLine}'");
-                if (objectiveParts[0].ToLower() != "max" && objectiveParts[0].ToLower() != "min")
-                    throw new LinearProgrammingParseException($"Objective function must start with 'max' or 'min': '{objectiveLine}'");
-                OptimizationType optType = objectiveParts[0].ToLower() == "max" ? OptimizationType.Maximize : OptimizationType.Minimize;
-                var objCoeffs = ParseCoefficients(objectiveParts.Skip(1), 1);
-                var objective = new ParsedObjectiveFunction { Optimization = optType, Coefficients = objCoeffs };
-
-                // Parse constraints
-                var constraints = new List<ParsedConstraint>();
-                for (int i = 1; i < lines.Count - 1; i++)
+                try
                 {
-                    var constraintLine = lines[i];
-                    
-                    // Find the constraint operator (<=, >=, =)
-                    string[] operators = { "<=", ">=", "=" };
-                    string foundOperator = null;
-                    int operatorIndex = -1;
-                    
-                    foreach (var op in operators)
-                    {
-                        int idx = constraintLine.IndexOf(op);
-                        if (idx != -1)
-                        {
-                            foundOperator = op;
-                            operatorIndex = idx;
-                            break;
-                        }
-                    }
-                    
-                    if (foundOperator == null)
-                        throw new LinearProgrammingParseException($"No valid constraint operator found on line {i + 1}: '{constraintLine}'");
-                    
-                    // Split the line into coefficients and RHS
-                    string coeffPart = constraintLine.Substring(0, operatorIndex).Trim();
-                    string rhsPart = constraintLine.Substring(operatorIndex + foundOperator.Length).Trim();
-                    
-                    // Parse coefficients
-                    var coeffParts = coeffPart.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    var coeffs = ParseCoefficients(coeffParts, i + 1);
-                    
-                    // Parse constraint type
-                    var type = foundOperator == "<=" ? ConstraintType.LessThanOrEqual :
-                        foundOperator == ">=" ? ConstraintType.GreaterThanOrEqual : ConstraintType.Equal;
-                    
-                    // Parse RHS
-                    if (!double.TryParse(rhsPart, NumberStyles.Float, CultureInfo.InvariantCulture, out double rhs))
-                        throw new LinearProgrammingParseException($"RHS value format error on line {i + 1}: '{rhsPart}'");
-                    
-                    constraints.Add(new ParsedConstraint { Coefficients = coeffs, Type = type, RHS = rhs });
+                    string[] lines = input.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(line => line.Trim())
+                        .Where(line => !string.IsNullOrWhiteSpace(line))
+                        .ToArray();
+
+                    if (lines.Length < 3) // At least objective, one constraint, and variable types
+                        throw new FormatException("Input must contain at least 3 lines (objective, constraints, variable types)");
+
+                    return ParseLines(lines);
+                }
+                catch (Exception ex) when (!(ex is FormatException))
+                {
+                    throw new FormatException($"Error parsing input: {ex.Message}", ex);
+                }
+            }
+
+            /// <summary>
+            /// Parses the entire model from an array of lines.
+            /// </summary>
+            private ParsedLinearProgrammingModel ParseLines(string[] lines)
+            {
+                var model = new ParsedLinearProgrammingModel
+                {
+                    Objective = ParseObjectiveLine(lines[0]),
+                    Constraints = new List<ParsedConstraint>()
+                };
+
+                // Parse constraints (all lines except first and last)
+                for (int i = 1; i < lines.Length - 1; i++)
+                {
+                    var constraint = ParseConstraintLine(lines[i]);
+                    if (constraint.Coefficients.Count != model.Objective.Coefficients.Count)
+                        throw new FormatException($"Constraint {i} has {constraint.Coefficients.Count} coefficients, expected {model.Objective.Coefficients.Count}");
+                    model.Constraints.Add(constraint);
                 }
 
-                // Parse variable types
-                var varTypeLine = lines.Last();
-                var varTypeParts = varTypeLine.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                // Parse variable types (last line)
+                ParseVariableTypes(lines[^1], model);
+
+                // Verify variable counts match
+                if (model.Objective.Coefficients.Count != model.Variables.Count)
+                    throw new FormatException(MismatchedVariableCount);
+
+                return model;
+            }
+
+            /// <summary>
+            /// Parses a constraint line.
+            /// Format: "[+-]coeff1 [+-]coeff2 ... <=/>=/= rhs"
+            /// </summary>
+            private ParsedConstraint ParseConstraintLine(string line)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    throw new FormatException(InvalidConstraintFormat);
+
+                // Performance: Use span for efficient string manipulation
+                ReadOnlySpan<char> lineSpan = line.Trim();
+                
+                // Find the operator (<=, >=, or =)
+                int opPos = -1;
+                string op = null;
+                
+                // Check for each operator type
+                int lePos = lineSpan.IndexOf("<=".AsSpan());
+                int gePos = lineSpan.IndexOf(">=".AsSpan());
+                int eqPos = lineSpan.IndexOf('=');
+                
+                if (lePos >= 0) op = "<=";
+                else if (gePos >= 0) op = ">=";
+                else if (eqPos >= 0) op = "=";
+                
+                if (op == null)
+                    throw new FormatException($"No valid constraint operator (<=, >=, =) found in: {line}");
+                
+                opPos = lineSpan.IndexOf(op, StringComparison.Ordinal);
+                
+                // Split into coefficients and RHS
+                var coeffsPart = lineSpan.Slice(0, opPos).Trim();
+                var rhsPart = lineSpan.Slice(opPos + op.Length).Trim();
+                
+                // Parse coefficients using span for better performance
+                var coeffs = new List<double>();
+                foreach (var coeffStr in coeffsPart.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (!double.TryParse(coeffStr, _numberStyle, _numberFormat, out double coeff))
+                        throw new FormatException($"Invalid coefficient format: {coeffStr}");
+                    coeffs.Add(coeff);
+                }
+
+                // Parse RHS
+                if (!double.TryParse(rhsPart, _numberStyle, _numberFormat, out double rhs))
+                    throw new FormatException($"Invalid RHS value: {rhsPart}");
+
+                // Parse constraint type
+                var constraintType = op switch
+                {
+                    "<=" => ConstraintType.LessThanOrEqual,
+                    ">=" => ConstraintType.GreaterThanOrEqual,
+                    "=" => ConstraintType.Equal,
+                    _ => throw new FormatException($"Invalid constraint operator: {op}")
+                };
+
+                return new ParsedConstraint
+                {
+                    Coefficients = coeffs,
+                    Type = constraintType,
+                    RHS = rhs
+                };
+            }
+
+            /// <summary>
+            /// Parses the variable types line (last line of input).
+            /// Format: "+ - urs int bin" (one per variable)
+            /// </summary>
+            private void ParseVariableTypes(string line, ParsedLinearProgrammingModel model)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    throw new FormatException(InvalidVariableTypeFormat);
+
+                // Performance: Use span for efficient string manipulation
+                var typeSpans = line.Trim().AsSpan();
                 var variables = new List<ParsedVariable>();
-                for (int i = 0; i < varTypeParts.Length; i++)
+                int varIndex = 0;
+                
+                // Process each character in the line
+                int start = 0;
+                for (int i = 0; i <= typeSpans.Length; i++)
                 {
-                    try
+                    if (i == typeSpans.Length || char.IsWhiteSpace(typeSpans[i]))
                     {
-                        variables.Add(new ParsedVariable
+                        if (i > start)
                         {
-                            Type = ParseVariableType(varTypeParts[i]),
-                            Index = i,
-                            Name = $"x{i + 1}"
-                        });
-                    }
-                    catch (FormatException ex)
-                    {
-                        throw new LinearProgrammingParseException($"Variable type format error at position {i + 1}: '{varTypeParts[i]}'", ex);
+                            var typeSpan = typeSpans.Slice(start, i - start);
+                            var variable = new ParsedVariable
+                            {
+                                Index = varIndex++,
+                                Name = $"x{varIndex}",
+                                Type = typeSpan switch
+                                {
+                                    _ when typeSpan.Equals("+".AsSpan(), StringComparison.Ordinal) => VariableType.NonNegative,
+                                    _ when typeSpan.Equals("-".AsSpan(), StringComparison.Ordinal) => VariableType.NonPositive,
+                                    _ when typeSpan.Equals("urs".AsSpan(), StringComparison.OrdinalIgnoreCase) => VariableType.Unrestricted,
+                                    _ when typeSpan.Equals("int".AsSpan(), StringComparison.OrdinalIgnoreCase) => VariableType.Integer,
+                                    _ when typeSpan.Equals("bin".AsSpan(), StringComparison.OrdinalIgnoreCase) => VariableType.Binary,
+                                    _ => throw new FormatException($"Invalid variable type: {typeSpan.ToString()}. Must be one of: +, -, urs, int, bin")
+                                }
+                            };
+                            variables.Add(variable);
+                        }
+                        start = i + 1;
                     }
                 }
 
-                // Validation
-                int varCount = objCoeffs.Count;
-                if (constraints.Any(c => c.Coefficients.Count != varCount))
-                    throw new LinearProgrammingParseException($"All constraints must have {varCount} coefficients matching the objective function.");
-                if (variables.Count != varCount)
-                    throw new LinearProgrammingParseException($"Number of variable types ({variables.Count}) must match number of objective coefficients ({varCount}).");
+                if (variables.Count == 0)
+                    throw new FormatException(InvalidVariableTypeFormat);
 
-                return new ParsedLinearProgrammingModel
+                model.Variables = variables;
+            }
+
+            /// <summary>
+            /// Parses the objective function line (first line of input).
+            /// Format: "max/min [+-]coeff1 [+-]coeff2 ..."
+            /// </summary>
+            private ParsedObjectiveFunction ParseObjectiveLine(string line)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    throw new FormatException(InvalidObjectiveFormat);
+
+                // Performance: Use span for efficient string manipulation
+                ReadOnlySpan<char> lineSpan = line.Trim();
+                
+                // Find the first space to separate 'max/min' from coefficients
+                int firstSpace = lineSpan.IndexOf(' ');
+                if (firstSpace < 0)
+                    throw new FormatException(InvalidObjectiveFormat);
+
+                // Parse optimization type
+                var optTypeSpan = lineSpan.Slice(0, firstSpace);
+                if (!(optTypeSpan.Equals("max".AsSpan(), StringComparison.OrdinalIgnoreCase) || 
+                      optTypeSpan.Equals("min".AsSpan(), StringComparison.OrdinalIgnoreCase)))
                 {
-                    Objective = objective,
-                    Constraints = constraints,
-                    Variables = variables
+                    throw new FormatException(InvalidObjectiveFormat);
+                }
+                var optType = optTypeSpan.Equals("max".AsSpan(), StringComparison.OrdinalIgnoreCase) 
+                    ? OptimizationType.Maximize 
+                    : OptimizationType.Minimize;
+
+                // Parse coefficients using span for better performance
+                var coeffSpan = lineSpan.Slice(firstSpace + 1);
+                var coeffs = new List<double>();
+                
+                // Split by whitespace and parse each coefficient
+                var coeffParts = coeffSpan.Trim().ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var part in coeffParts)
+                {
+                    if (!double.TryParse(part, _numberStyle, _numberFormat, out double coeff))
+                        throw new FormatException($"Invalid coefficient format: {part}");
+                    coeffs.Add(coeff);
+                }
+
+                if (coeffs.Count == 0)
+                    throw new FormatException("At least one coefficient is required");
+
+                return new ParsedObjectiveFunction
+                {
+                    Optimization = optType,
+                    Coefficients = coeffs
                 };
             }
 
             /// <summary>
             /// Parses a linear programming model from a file.
-            /// Throws detailed exceptions for format errors.
             /// </summary>
+            /// <param name="filePath">Path to the input file</param>
+            /// <returns>Parsed linear programming model</returns>
+            /// <exception cref="FileNotFoundException">If the file does not exist</exception>
+            /// <exception cref="FormatException">If the file format is invalid</exception>
             public ParsedLinearProgrammingModel ParseFromFile(string filePath)
             {
                 if (!File.Exists(filePath))
-                    throw new LinearProgrammingParseException($"File not found: {filePath}");
-                var content = File.ReadAllText(filePath);
-                return ParseFromString(content);
-            }
+                    throw new FileNotFoundException($"Input file not found: {filePath}");
 
-            private List<double> ParseCoefficients(IEnumerable<string> parts, int lineNumber)
-            {
-                var coeffs = new List<double>();
-                int col = 1;
-                foreach (var part in parts)
+                try
                 {
-                    if (string.IsNullOrWhiteSpace(part)) continue;
-                    
-                    // Updated regex to handle the exact format requirements
-                    if (!Regex.IsMatch(part, @"^[+-]?\d+(?:\.\d+)?$"))
-                        throw new LinearProgrammingParseException($"Coefficient format error at line {lineNumber}, position {col}: '{part}'");
-                    try
-                    {
-                        coeffs.Add(double.Parse(part, CultureInfo.InvariantCulture));
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new LinearProgrammingParseException($"Coefficient parse error at line {lineNumber}, position {col}: '{part}'", ex);
-                    }
-                    col++;
+                    string[] lines = File.ReadAllLines(filePath)
+                        .Where(line => !string.IsNullOrWhiteSpace(line))
+                        .Select(line => line.Trim())
+                        .ToArray();
+
+                    if (lines.Length < 3) // At least objective, one constraint, and variable types
+                        throw new FormatException("Input file must contain at least 3 lines (objective, constraints, variable types)");
+
+                    return ParseLines(lines);
                 }
-                return coeffs;
-            }
-
-            private VariableType ParseVariableType(string typeStr)
-            {
-                switch (typeStr.ToLower())
+                catch (Exception ex) when (!(ex is FormatException))
                 {
-                    case "+": return VariableType.NonNegative;
-                    case "-": return VariableType.NonPositive;
-                    case "urs": return VariableType.Unrestricted;
-                    case "int": return VariableType.Integer;
-                    case "bin": return VariableType.Binary;
-                    default: throw new FormatException($"Unknown variable type: {typeStr}");
+                    throw new FormatException($"Error parsing file: {ex.Message}", ex);
                 }
             }
         }
@@ -362,5 +541,4 @@ namespace LinearProgramming.Parsing
             public LinearProgrammingParseException(string message, Exception inner) : base(message, inner) { }
         }
     }
-
 }
