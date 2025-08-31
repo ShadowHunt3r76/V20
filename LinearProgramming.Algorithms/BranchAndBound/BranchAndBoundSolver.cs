@@ -207,14 +207,20 @@ namespace LinearProgramming.Algorithms.BranchAndBound
             {
                 DisplaySolutionPath(solution);
             }
-            
+
             var results = new List<object[]>
+{
+    new object[] { "Total Nodes Explored", solution.TotalNodesExplored },
+    new object[] { "Total Nodes Fathomed", solution.TotalNodesFathomed },
+    new object[] { "Status", solution.OverallStatus }
+};
+
+            // Only show best solution if a valid integer solution exists
+            if (solution.BestCandidate != null)
             {
-                new object[] { "Total Nodes Explored", solution.TotalNodesExplored },
-                new object[] { "Total Nodes Fathomed", solution.TotalNodesFathomed },
-                new object[] { "Best Integer Solution", solution.BestObjectiveValue.ToString("F3") },
-                new object[] { "Status", solution.OverallStatus }
-            };
+                results.Insert(2, new object[] { "Best Integer Solution", solution.BestObjectiveValue.ToString("F3") });
+            }
+
 
             var table = OutputFormatter.CreateTable(
      new[] { "Metric", "Value" },
@@ -576,9 +582,18 @@ namespace LinearProgramming.Algorithms.BranchAndBound
             }
             newRHSVector[numConstraints] = newRHS;
 
+            // Expand constraint types
+            var newConstraintTypes = new ConstraintType[numConstraints + 1];
+            for (int i = 0; i < numConstraints; i++)
+            {
+                newConstraintTypes[i] = model.ConstraintTypes[i];
+            }
+            newConstraintTypes[numConstraints] = isUpperBound ? ConstraintType.LessThanOrEqual : ConstraintType.GreaterThanOrEqual;
+
             // Update the model
             model.CoefficientMatrix = newMatrix;
             model.RHSVector = newRHSVector;
+            model.ConstraintTypes = newConstraintTypes;
         }
 
         /// <summary>
