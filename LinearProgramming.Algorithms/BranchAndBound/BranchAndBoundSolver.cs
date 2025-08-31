@@ -217,11 +217,33 @@ namespace LinearProgramming.Algorithms.BranchAndBound
             };
 
             var table = OutputFormatter.CreateTable(
-                new[] { "Metric", "Value" },
-                results
-            );
+     new[] { "Metric", "Value" },
+     results
+ );
 
             Console.WriteLine(OutputFormatter.CreateBox(table, "BRANCH AND BOUND RESULTS"));
+
+            // === PATCH: normalize variable names & objective coefficients ===
+            var variableNames = canonical.VariableNames ??
+                Enumerable.Range(0, canonical.ObjectiveCoefficients.Length)
+                    .Select(i => $"x{i + 1}")
+                    .Concat(Enumerable.Range(1, canonical.CoefficientMatrix.Length).Select(i => $"s{i}"))
+                    .ToArray();
+
+            var objectiveCoefficients = new double[variableNames.Length];
+            if (canonical.ObjectiveCoefficients != null)
+            {
+                for (int i = 0; i < canonical.ObjectiveCoefficients.Length; i++)
+                    objectiveCoefficients[i] = canonical.ObjectiveCoefficients[i];
+            }
+
+            // overwrite canonical with padded arrays
+            canonical.VariableNames = variableNames;
+            canonical.ObjectiveCoefficients = objectiveCoefficients;
+
+            // optional debug message
+            Console.WriteLine($"[B&B Patch] Normalized to {variableNames.Length} variables");
+            // === END PATCH ===
 
             return solution;
         }
@@ -569,7 +591,8 @@ namespace LinearProgramming.Algorithms.BranchAndBound
                 CoefficientMatrix = original.CoefficientMatrix.Select(row => (double[])row.Clone()).ToArray(),
                 RHSVector = (double[])original.RHSVector.Clone(),
                 ObjectiveCoefficients = (double[])original.ObjectiveCoefficients.Clone(),
-                VariableTypes = (VariableType[])original.VariableTypes.Clone()
+                VariableTypes = (VariableType[])original.VariableTypes.Clone(),
+                ConstraintTypes = (ConstraintType[])original.ConstraintTypes.Clone()
             };
         }
 
