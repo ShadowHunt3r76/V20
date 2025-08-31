@@ -255,84 +255,127 @@ namespace LinearProgrammingApp
         {
             Console.WriteLine("\n=== Knapsack Problem Solver ===");
             
-            // Get number of items
-            int n;
-            while (true)
+            try 
             {
-                Console.Write("Enter number of items: ");
-                if (int.TryParse(Console.ReadLine(), out n) && n > 0)
-                    break;
-                Console.WriteLine("Please enter a positive integer.");
-            }
-
-            // Get values and weights
-            double[] values = new double[n];
-            double[] weights = new double[n];
-            
-            for (int i = 0; i < n; i++)
-            {
-                Console.WriteLine($"\nItem {i + 1}:");
+                // Extract values from the objective function (maximization)
+                double[] values = model.Objective.Coefficients.ToArray();
+                int n = values.Length;
                 
-                while (true)
+                // Extract weights from the first constraint
+                double[] weights = model.Constraints[0].Coefficients.ToArray();
+                double capacity = model.Constraints[0].RHS;
+                
+                // Display the problem being solved
+                Console.WriteLine("\nSolving knapsack problem with:");
+                Console.WriteLine($"- Items: {n}");
+                Console.WriteLine($"- Values: {string.Join(", ", values)}");
+                Console.WriteLine($"- Weights: {string.Join(", ", weights)}");
+                Console.WriteLine($"- Capacity: {capacity}");
+
+                // Create knapsack problem with detailed logging
+                var knapsack = new LinearProgramming.Algorithms.Knapsack.KnapsackSolver(weights, values, capacity);
+
+                // Enable detailed logging for branch and bound
+                Console.WriteLine("\n=== Branch and Bound Process ===");
+                var (maxValue, includedItems) = knapsack.Solve(enableLogging: true);
+
+                // Display results
+                Console.WriteLine("\n=== Optimal Solution ===");
+                Console.WriteLine($"Maximum value: {maxValue:F2}");
+                
+                double totalWeight = 0;
+                Console.WriteLine("\nSelected Items:");
+                for (int i = 0; i < includedItems.Length; i++)
                 {
-                    Console.Write("Enter value: ");
-                    if (double.TryParse(Console.ReadLine(), out values[i]) && values[i] >= 0)
-                        break;
-                    Console.WriteLine("Please enter a non-negative number.");
+                    if (includedItems[i])
+                    {
+                        totalWeight += weights[i];
+                        Console.WriteLine($"  Item {i + 1}: Value = {values[i]:F2}, Weight = {weights[i]:F2}");
+                    }
+                }
+                Console.WriteLine($"\nTotal Weight: {totalWeight:F2}/{capacity}");
+                
+                // Save results
+                string solutionPath = Path.Combine(Path.GetDirectoryName(outputPath), 
+                    $"knapsack_{Path.GetFileName(outputPath)}");
+                OutputFileGenerator.GenerateKnapsackOutput(weights, values, capacity, (maxValue, includedItems), solutionPath);
+                Console.WriteLine($"\nSolution saved to: {Path.GetFullPath(solutionPath)}");
+                
+                // Ask if user wants to perform sensitivity analysis
+                Console.Write("\nPerform sensitivity analysis? (y/n): ");
+                if (Console.ReadLine().Trim().ToLower() == "y")
+                {
+                    PerformKnapsackSensitivityAnalysis(weights, values, capacity, maxValue, includedItems, solutionPath);
                 }
                 
-                while (true)
-                {
-                    Console.Write("Enter weight: ");
-                    if (double.TryParse(Console.ReadLine(), out weights[i]) && weights[i] > 0)
-                        break;
-                    Console.WriteLine("Please enter a positive number.");
-                }
+                // Display the complete search tree
+                Console.WriteLine("\n=== Complete Branch and Bound Search Tree ===");
+                DisplayKnapsackSearchTree(knapsack);
             }
-
-            // Get capacity
-            double capacity;
-            while (true)
+            catch (Exception ex)
             {
-                Console.Write("\nEnter knapsack capacity: ");
-                if (double.TryParse(Console.ReadLine(), out capacity) && capacity > 0)
-                    break;
-                Console.WriteLine("Please enter a positive number.");
-            }
-
-            // Solve knapsack problem
-            var knapsack = new KnapsackSolver(weights, values, capacity);
-            var solution = knapsack.Solve();
-
-            // Display results
-            Console.WriteLine("\n=== Solution ===");
-            Console.WriteLine($"Maximum value: {solution.maxValue:F2}");
-            
-            double totalWeight = 0;
-            Console.WriteLine("\nSelected Items:");
-            for (int i = 0; i < solution.includedItems.Length; i++)
-            {
-                if (solution.includedItems[i])
-                {
-                    totalWeight += weights[i];
-                    Console.WriteLine($"  Item {i + 1}: Value = {values[i]:F2}, Weight = {weights[i]:F2}");
-                }
-            }
-            Console.WriteLine($"\nTotal Weight: {totalWeight:F2}");
-            
-            // List all items with selection status
-            Console.WriteLine("\nAll Items:");
-            for (int i = 0; i < n; i++)
-            {
-                string selected = solution.includedItems[i] ? "[X]" : "[ ]";
-                Console.WriteLine($"{selected} Item {i + 1}: Value = {values[i]:F2}, Weight = {weights[i]:F2}");
+                Console.WriteLine($"\nError solving knapsack problem: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
             }
             
-            // Save results
-            string solutionPath = Path.Combine(Path.GetDirectoryName(outputPath), $"knapsack_{Path.GetFileName(outputPath)}");
-            OutputFileGenerator.GenerateKnapsackOutput(weights, values, capacity, solution, solutionPath);
-            Console.WriteLine($"\nSolution saved to: {Path.GetFullPath(solutionPath)}");
+            Console.WriteLine("\nPress any key to continue...");
+            Console.ReadKey();
         }
+        
+        private static void DisplayKnapsackSearchTree(LinearProgramming.Algorithms.Knapsack.KnapsackSolver knapsack)
+        {
+            try
+            {
+                var searchTree = knapsack.SearchTree;
+                if (searchTree == null || searchTree.Count == 0)
+                {
+                    Console.WriteLine("No search tree data available.");
+                    return;
+                }
+                
+                Console.WriteLine("\nSearch Tree Visualization:");
+                Console.WriteLine("=========================\n");
+                
+                // Group nodes by level for better visualization
+                var levels = searchTree.GroupBy(n => n.Level).OrderBy(g => g.Key);
+                
+                foreach (var level in levels)
+                {
+                    Console.WriteLine($"Level {level.Key + 1}:");
+                    foreach (var node in level)
+                    {
+                        string nodeInfo = $"  {node.Path} [Value: {node.Value}, Bound: {node.Bound:F2}, ";
+                        nodeInfo += $"Weight: {node.Weight}] ";
+                        
+                        // Highlight the best solution
+                        if (node == knapsack.BestNode)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            nodeInfo += "(Best Solution)";
+                        }
+                        
+                        Console.WriteLine(nodeInfo);
+                        Console.ResetColor();
+                        
+                        // Show included items
+                        var included = node.Included.Select((inc, i) => inc ? i + 1 : -1)
+                                                 .Where(i => i > 0)
+                                                 .ToList();
+                        
+                        if (included.Any())
+                        {
+                            Console.WriteLine($"    Included items: {string.Join(", ", included)}");
+                        }
+                    }
+                    Console.WriteLine();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error displaying search tree: {ex.Message}");
+            }
+        }
+
         private static void DisplayModelInfo(ParsedLinearProgrammingModel model)
         {
             Console.Clear();
@@ -346,7 +389,15 @@ namespace LinearProgrammingApp
             for (int i = 0; i < model.Variables.Count; i++)
             {
                 var variable = model.Variables[i];
-                string type = variable.Type == VariableType.NonNegative ? "Non-negative" : "Non-positive";
+                string type = variable.Type switch
+                {
+                    VariableType.NonNegative => "Non-negative",
+                    VariableType.NonPositive => "Non-positive",
+                    VariableType.Binary => "Binary (0 or 1)",
+                    VariableType.Integer => "Integer",
+                    VariableType.Unrestricted => "Unrestricted",
+                    _ => "Unknown"
+                };
                 Console.WriteLine($"  x{i+1} : {type}");
             }
             
@@ -356,19 +407,24 @@ namespace LinearProgrammingApp
             {
                 string lhs = string.Join(" + ", constraint.Coefficients.Select((c, i) => $"{c}x{i+1}"));
                 string relation = constraint.Type == ConstraintType.LessThanOrEqual ? "<=" : ">=";
-                // We don't have RHS in the constraint, so we'll just show the coefficients for now
-                Console.WriteLine($"  {lhs} {relation} [RHS]");
+                Console.WriteLine($"  {lhs} {relation} {constraint.RHS}");
             }
             
-            // Bounds (if available)
-            // Note: The model might not have explicit bounds, as they could be part of the variable types
-            // We'll show the variable types again for clarity
-            Console.WriteLine("\nVariable Types:");
+            // Variable Bounds
+            Console.WriteLine("\nVariable Bounds:");
             for (int i = 0; i < model.Variables.Count; i++)
             {
                 var variable = model.Variables[i];
-                string type = variable.Type == VariableType.NonNegative ? "≥ 0" : "≤ 0";
-                Console.WriteLine($"  x{i+1} {type}");
+                string bounds = variable.Type switch
+                {
+                    VariableType.NonNegative => "0 ≤ x{i+1} < ∞",
+                    VariableType.NonPositive => "-∞ < x{i+1} ≤ 0",
+                    VariableType.Binary => "x{i+1} ∈ {0, 1}",
+                    VariableType.Integer => "x{i+1} ∈ ℤ",
+                    VariableType.Unrestricted => "-∞ < x{i+1} < ∞",
+                    _ => "Unknown bounds"
+                };
+                Console.WriteLine($"  {bounds}");
             }
             
             Console.WriteLine("\nPress any key to continue...");
@@ -506,7 +562,7 @@ namespace LinearProgrammingApp
             string fileName = "primal_simplex_sensitivity.txt";
             string analysisText = sensitivity.GenerateVisualization();
             File.WriteAllText(fileName, analysisText);
-            Console.WriteLine($"\nSensitivity analysis saved to {fileName}");
+            Console.WriteLine($"\nSensitivity analysis saved to: {fileName}");
         }
         
         private static void RunRevisedPrimalSimplexSensitivity(ParsedLinearProgrammingModel model)
@@ -545,7 +601,7 @@ namespace LinearProgrammingApp
             string fileName = "revised_primal_simplex_sensitivity.txt";
             string analysisText = sensitivity.GenerateVisualization();
             File.WriteAllText(fileName, analysisText);
-            Console.WriteLine($"\nSensitivity analysis saved to {fileName}");
+            Console.WriteLine($"\nSensitivity analysis saved to: {fileName}");
         }
         
         private static void RunBranchAndBoundSensitivity(ParsedLinearProgrammingModel model)
@@ -580,7 +636,7 @@ namespace LinearProgrammingApp
                 // Save analysis to file
                 string fileName = "branch_bound_sensitivity.txt";
                 File.WriteAllText(fileName, analysisResults);
-                Console.WriteLine($"\nSensitivity analysis saved to {fileName}");
+                Console.WriteLine($"\nSensitivity analysis saved to: {fileName}");
             }
             catch (Exception ex)
             {
@@ -653,6 +709,33 @@ namespace LinearProgrammingApp
                 {
                     Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
                 }
+            }
+        }
+        
+        private static void PerformKnapsackSensitivityAnalysis(double[] weights, double[] values, double capacity, double maxValue, bool[] includedItems, string solutionPath)
+        {
+            try
+            {
+                Console.WriteLine("\n=== Knapsack Sensitivity Analysis ===");
+                
+                // Create a new knapsack solver instance
+                var knapsack = new KnapsackSolver(weights, values, capacity);
+                
+                // Perform sensitivity analysis
+                knapsack.PerformSensitivityAnalysis(includedItems, maxValue);
+                
+                // Save the sensitivity analysis to a file
+                string analysisPath = Path.Combine(
+                    Path.GetDirectoryName(solutionPath),
+                    Path.GetFileNameWithoutExtension(solutionPath) + "_sensitivity.txt");
+                
+                File.WriteAllText(analysisPath, string.Join(Environment.NewLine, knapsack.IterationLog));
+                Console.WriteLine($"\nSensitivity analysis saved to: {Path.GetFullPath(analysisPath)}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"\nError performing sensitivity analysis: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
             }
         }
         

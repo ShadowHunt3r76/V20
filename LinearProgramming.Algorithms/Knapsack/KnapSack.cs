@@ -2,13 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using MathNet.Numerics.LinearAlgebra;
 using LinearProgramming.Algorithms.Utils;
 using static LinearProgramming.Algorithms.Utils.NumericalStabilityUtils;
 
 namespace LinearProgramming.Algorithms.Knapsack
 {
+    /// <summary>
+    /// Represents a node in the branch and bound search tree for the knapsack problem
+    /// </summary>
     public class KnapsackNode
     {
         public int Level { get; set; }
@@ -17,29 +19,83 @@ namespace LinearProgramming.Algorithms.Knapsack
         public double Bound { get; set; }
         public bool[] Included { get; set; }
         public string Path { get; set; }
+        public int? ParentId { get; set; }
 
         public KnapsackNode(int n)
         {
             Included = new bool[n];
             Path = "";
+            ParentId = null;
+        }
+        
+        public KnapsackNode Clone()
+        {
+            return new KnapsackNode(Included.Length)
+            {
+                Level = this.Level,
+                Value = this.Value,
+                Weight = this.Weight,
+                Bound = this.Bound,
+                Included = (bool[])this.Included.Clone(),
+                Path = this.Path,
+                ParentId = this.ParentId
+            };
         }
     }
 
+    /// <summary>
+    /// Solves the 0/1 knapsack problem using branch and bound algorithm
+    /// </summary>
     public class KnapsackSolver
     {
         private double[] weights;
         private double[] values;
-        private double capacity;
+        private readonly double capacity;
+        private const double Epsilon = 1e-10;
         private int n;
         private KnapsackNode bestNode;
-        private List<string> iterationLog;
-        private const double Epsilon = 1e-10;
+        private readonly List<string> iterationLog = new();
+        private readonly List<KnapsackNode> searchTree = new();
+
+        public KnapsackSolver(double[] weights, double[] values, double capacity)
+        {
+            this.weights = weights ?? throw new ArgumentNullException(nameof(weights));
+            this.values = values ?? throw new ArgumentNullException(nameof(values));
+            this.capacity = capacity > 0 ? capacity : throw new ArgumentException("Capacity must be positive", nameof(capacity));
+            
+            if (weights.Length != values.Length)
+            {
+                throw new ArgumentException("Number of weights must match number of values");
+            }
+            
+            this.n = weights.Length;
+            this.iterationLog = new List<string>();
+            this.searchTree = new List<KnapsackNode>();
+        }
+        
+        /// <summary>
+        /// Gets the iteration log containing detailed information about the solving process
+        /// </summary>
+        public IReadOnlyList<string> IterationLog => iterationLog.AsReadOnly();
+        
+        /// <summary>
+        /// Gets the search tree generated during the solving process
+        /// </summary>
+        public IReadOnlyList<KnapsackNode> SearchTree => searchTree.AsReadOnly();
+        
+        /// <summary>
+        /// Gets the best node found during the search
+        /// </summary>
+        public KnapsackNode BestNode => bestNode;
 
         private static bool AreEqual(double a, double b, double epsilon = 1e-10)
         {
             return Math.Abs(a - b) < epsilon;
         }
 
+        /// <summary>
+        /// Validates the knapsack problem inputs and checks for trivially infeasible cases
+        /// </summary>
         /// <summary>
         /// Validates the knapsack problem inputs and checks for trivially infeasible cases
         /// </summary>
@@ -112,55 +168,9 @@ namespace LinearProgramming.Algorithms.Knapsack
             return issues.Count > 0 ? string.Join("\n", issues) : null;
         }
         
-        public KnapsackSolver(double[] weights, double[] values, double capacity)
-        {
-            this.weights = weights ?? throw new ArgumentNullException(nameof(weights));
-            this.values = values ?? throw new ArgumentNullException(nameof(values));
-            this.capacity = capacity;
-            this.n = weights.Length;
-            this.iterationLog = new List<string>();
-            
-            // Validate inputs and throw detailed exception if invalid
-            string validationError = ValidateInputs();
-            if (validationError != null)
-            {
-                throw new ArgumentException($"Invalid knapsack problem: {validationError}");
-            }
-        }
-
         /// <summary>
-        /// Logs information about a trivial solution
+        /// Calculates the upper bound for a node using the fractional knapsack approach
         /// </summary>
-        private void LogTrivialSolution(double value, bool[] solution)
-        {
-            var log = new StringBuilder();
-            log.AppendLine(OutputFormatter.CreateHeader("TRIVIAL SOLUTION FOUND"));
-            
-            if (n == 0)
-            {
-                log.AppendLine("No items to consider");
-            }
-            else if (capacity <= 0)
-            {
-                log.AppendLine("Knapsack capacity is zero");
-            }
-            else if (n == 1)
-            {
-                log.AppendLine("Only one item to consider");
-                log.AppendLine(OutputFormatter.FormatKeyValue("Item fits", solution[0] ? "Yes" : "No"));
-            }
-            else
-            {
-                log.AppendLine("All items fit in the knapsack");
-            }
-            
-            log.AppendLine(OutputFormatter.FormatKeyValue("Total Value", value));
-            log.AppendLine(OutputFormatter.FormatKeyValue("Total Weight", 
-                solution.Zip(weights, (inc, w) => inc ? w : 0).Sum()));
-                
-            iterationLog.Add(log.ToString());
-        }
-        
         private double CalculateBound(KnapsackNode node)
         {
             try
@@ -203,6 +213,247 @@ namespace LinearProgramming.Algorithms.Knapsack
         }
 
         /// <summary>
+        /// Logs information about a node being processed
+        /// </summary>
+        private void LogNode(KnapsackNode node, string action)
+        {
+            var log = new StringBuilder();
+            log.AppendLine(OutputFormatter.CreateHeader($"Node: {node.Path} - {action}"));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Level", node.Level + 1));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Current Value", node.Value));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Current Weight", $"{node.Weight} / {capacity}"));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Upper Bound", node.Bound));
+            
+            var included = Enumerable.Range(0, n)
+                .Where(i => node.Included[i])
+                .Select(i => $"Item {i + 1}");
+                
+            log.AppendLine(OutputFormatter.FormatKeyValue("Included Items", 
+                included.Any() ? string.Join(", ", included) : "None"));
+                
+            iterationLog.Add(log.ToString());
+        }
+        
+        /// <summary>
+        /// Logs the current best solution
+        /// </summary>
+        private void LogCurrentBest()
+        {
+            if (bestNode == null) return;
+            
+            var log = new StringBuilder();
+            log.AppendLine(OutputFormatter.CreateHeader("CURRENT BEST SOLUTION"));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Value", bestNode.Value));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Weight", $"{bestNode.Weight} / {capacity}"));
+            
+            var included = Enumerable.Range(0, n)
+                .Where(i => bestNode.Included[i])
+                .Select(i => $"Item {i + 1}");
+                
+            log.AppendLine(OutputFormatter.FormatKeyValue("Items", 
+                included.Any() ? string.Join(", ", included) : "None"));
+                
+            iterationLog.Add(log.ToString());
+        }
+
+        /// <summary>
+        /// Solves the 0/1 knapsack problem using branch and bound algorithm
+        /// </summary>
+        /// <param name="enableLogging">Whether to enable detailed logging of the solving process</param>
+        /// <returns>A tuple containing the maximum value and a boolean array indicating included items</returns>
+        public (double maxValue, bool[] includedItems) Solve(bool enableLogging = true)
+        {
+            // Reset state
+            iterationLog.Clear();
+            searchTree.Clear();
+            bestNode = null;
+            
+            // Check for trivial solutions first
+            if (PrepareProblem(out double trivialValue, out bool[] trivialSolution))
+            {
+                if (enableLogging)
+                {
+                    LogTrivialSolution(trivialValue, trivialSolution);
+                }
+                return (trivialValue, trivialSolution);
+            }
+            
+            // Sort items by value/weight ratio in descending order
+            var items = Enumerable.Range(0, n)
+                .OrderByDescending(i => values[i] / (weights[i] + Epsilon))
+                .ToArray();
+
+            // Reorder arrays based on sorted items
+            this.weights = items.Select(i => weights[i]).ToArray();
+            this.values = items.Select(i => values[i]).ToArray();
+
+            // Initialize best solution
+            bestNode = new KnapsackNode(n)
+            {
+                Level = -1,
+                Value = 0,
+                Weight = 0,
+                Bound = 0,
+                Included = new bool[n]
+            };
+
+            // Create root node
+            var root = new KnapsackNode(n)
+            {
+                Level = -1,
+                Value = 0,
+                Weight = 0,
+                Bound = CalculateBound(new KnapsackNode(n)),
+                Included = new bool[n],
+                Path = "Root"
+            };
+            
+            // Add root to search tree
+            searchTree.Add(root);
+            
+            // Use a stack for DFS
+            var nodeStack = new Stack<KnapsackNode>();
+            nodeStack.Push(root);
+
+            while (nodeStack.Count > 0)
+            {
+                var currentNode = nodeStack.Pop();
+                
+                // If bound is worse than best, skip this node
+                if (currentNode.Bound <= bestNode.Value + Epsilon)
+                {
+                    if (enableLogging)
+                    {
+                        LogNode(currentNode, "Fathomed (bound <= best)");
+                    }
+                    continue;
+                }
+
+                // If we've reached the end or found a better solution, update best solution
+                if (currentNode.Level == n - 1 || 
+                    (currentNode.Value > bestNode.Value + Epsilon && currentNode.Weight <= capacity + Epsilon))
+                {
+                    if (currentNode.Value > bestNode.Value + Epsilon)
+                    {
+                        bestNode = currentNode.Clone();
+                        if (enableLogging)
+                        {
+                            LogNode(bestNode, "New best solution found");
+                            LogCurrentBest();
+                        }
+                    }
+                    
+                    if (currentNode.Level == n - 1)
+                    {
+                        continue;
+                    }
+                }
+
+                int nextLevel = currentNode.Level + 1;
+
+                // Right child (exclude next item)
+                var rightNode = new KnapsackNode(n)
+                {
+                    Level = nextLevel,
+                    Value = currentNode.Value,
+                    Weight = currentNode.Weight,
+                    Included = (bool[])currentNode.Included.Clone(),
+                    Path = $"{currentNode.Path} -> Exclude {nextLevel + 1}",
+                    ParentId = searchTree.IndexOf(currentNode)
+                };
+                rightNode.Bound = CalculateBound(rightNode);
+                
+                // Left child (include next item)
+                var leftNode = new KnapsackNode(n)
+                {
+                    Level = nextLevel,
+                    Value = currentNode.Value + values[nextLevel],
+                    Weight = currentNode.Weight + weights[nextLevel],
+                    Included = (bool[])currentNode.Included.Clone(),
+                    Path = $"{currentNode.Path} -> Include {nextLevel + 1}",
+                    ParentId = searchTree.IndexOf(currentNode)
+                };
+                leftNode.Included[nextLevel] = true;
+                leftNode.Bound = CalculateBound(leftNode);
+
+                // Add right child first (LIFO for DFS)
+                if (rightNode.Weight <= capacity + Epsilon)
+                {
+                    rightNode.ParentId = searchTree.IndexOf(currentNode);
+                    searchTree.Add(rightNode);
+                    nodeStack.Push(rightNode);
+                    if (enableLogging)
+                    {
+                        LogNode(rightNode, "Created right child (exclude)");
+                    }
+                }
+
+                // Add left child if it's feasible
+                if (leftNode.Weight <= capacity + Epsilon)
+                {
+                    leftNode.ParentId = searchTree.IndexOf(currentNode);
+                    searchTree.Add(leftNode);
+                    nodeStack.Push(leftNode);
+                    if (enableLogging)
+                    {
+                        LogNode(leftNode, "Created left child (include)");
+                    }
+                }
+                
+                // Log current best solution
+                if (enableLogging)
+                {
+                    LogCurrentBest();
+                }
+            }
+
+            // Reconstruct the solution in original item order
+            var solution = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (bestNode.Included[i])
+                {
+                    solution[items[i]] = true;
+                }
+            }
+
+            return (bestNode.Value, solution);
+        }
+
+        /// <summary>
+        /// Logs information about a trivial solution
+        /// </summary>
+        private void LogTrivialSolution(double value, bool[] solution)
+        {
+            var log = new StringBuilder();
+            log.AppendLine(OutputFormatter.CreateHeader("TRIVIAL SOLUTION FOUND"));
+            
+            if (n == 0)
+            {
+                log.AppendLine("No items to consider");
+            }
+            else if (capacity <= 0)
+            {
+                log.AppendLine("Knapsack capacity is zero");
+            }
+            else if (n == 1)
+            {
+                log.AppendLine("Only one item to consider");
+                log.AppendLine(OutputFormatter.FormatKeyValue("Item fits", solution[0] ? "Yes" : "No"));
+            }
+            else
+            {
+                log.AppendLine("All items fit in the knapsack");
+            }
+            
+            log.AppendLine(OutputFormatter.FormatKeyValue("Total Value", value));
+            log.AppendLine(OutputFormatter.FormatKeyValue("Total Weight", 
+                solution.Zip(weights, (inc, w) => inc ? w : 0).Sum()));
+                
+            iterationLog.Add(log.ToString());
+        }
+
+        /// <summary>
         /// Prepares the knapsack problem by sorting items and checking for trivial solutions
         /// </summary>
         private bool PrepareProblem(out double maxValue, out bool[] includedItems)
@@ -210,13 +461,19 @@ namespace LinearProgramming.Algorithms.Knapsack
             maxValue = 0;
             includedItems = new bool[n];
             
-            // Check for trivial case: no items or zero capacity
-            if (n == 0 || capacity <= 0)
+            // Check for empty problem
+            if (n == 0)
             {
                 return true;
             }
             
-            // Check for trivial case: only one item that fits
+            // Check for zero capacity
+            if (capacity <= 0)
+            {
+                return true;
+            }
+            
+            // Check for single item
             if (n == 1)
             {
                 if (weights[0] <= capacity)
@@ -232,132 +489,30 @@ namespace LinearProgramming.Algorithms.Knapsack
             if (totalWeight <= capacity)
             {
                 maxValue = values.Sum();
-                for (int i = 0; i < n; i++) includedItems[i] = true;
+                for (int i = 0; i < n; i++) 
+                    includedItems[i] = true;
                 return true;
             }
-            
-            return false;
-        }
-        
-        public (double maxValue, bool[] includedItems) Solve()
-        {
-            // Check for trivial solutions first
-            if (PrepareProblem(out double trivialValue, out bool[] trivialSolution))
-            {
-                LogTrivialSolution(trivialValue, trivialSolution);
-                return (trivialValue, trivialSolution);
-            }
-            
-            // Sort items by value/weight ratio in descending order
-            var items = Enumerable.Range(0, n)
-                .OrderByDescending(i => values[i] / weights[i])
-                .ToList();
 
-            // Rearrange weights and values based on sorted order
-            weights = items.Select(i => weights[i]).ToArray();
-            values = items.Select(i => values[i]).ToArray();
-
-            var queue = new Queue<KnapsackNode>();
-            var root = new KnapsackNode(n) { Level = -1, Value = 0, Weight = 0 };
-            root.Bound = CalculateBound(root);
-            queue.Enqueue(root);
-
-            while (queue.Count > 0)
-            {
-                var currentNode = queue.Dequeue();
-                
-                // If there's no chance of doing better, skip this node
-                if (bestNode != null && currentNode.Bound <= bestNode.Value)
-                {
-                    LogNode(currentNode, "Fathomed (bound <= best value)");
-                    continue;
-                }
-
-                // If we've reached the end, check if this is the best solution
-                if (currentNode.Level == n - 1)
-                {
-                    if (currentNode.Value > (bestNode?.Value ?? 0) && currentNode.Weight <= capacity)
-                    {
-                        bestNode = currentNode;
-                        LogNode(bestNode, "New best solution found!");
-                    }
-                    continue;
-                }
-
-                // Create child node where we include the next item
-                var includeNode = new KnapsackNode(n)
-                {
-                    Level = currentNode.Level + 1,
-                    Weight = currentNode.Weight + weights[currentNode.Level + 1],
-                    Path = currentNode.Path + "1"
-                };
-                Array.Copy(currentNode.Included, includeNode.Included, n);
-                includeNode.Included[includeNode.Level] = true;
-                includeNode.Value = currentNode.Value + values[includeNode.Level];
-                includeNode.Bound = CalculateBound(includeNode);
-
-                // Create child node where we exclude the next item
-                var excludeNode = new KnapsackNode(n)
-                {
-                    Level = currentNode.Level + 1,
-                    Weight = currentNode.Weight,
-                    Value = currentNode.Value,
-                    Path = currentNode.Path + "0"
-                };
-                Array.Copy(currentNode.Included, excludeNode.Included, n);
-                excludeNode.Included[excludeNode.Level] = false;
-                excludeNode.Bound = CalculateBound(excludeNode);
-
-                // Add nodes to queue if they're promising
-                if (includeNode.Weight <= capacity)
-                {
-                    queue.Enqueue(includeNode);
-                    LogNode(includeNode, "Include item " + (includeNode.Level + 1));
-                }
-                else
-                {
-                    LogNode(includeNode, "Fathomed (over capacity)");
-                }
-
-                if (excludeNode.Bound > (bestNode?.Value ?? 0))
-                {
-                    queue.Enqueue(excludeNode);
-                    LogNode(excludeNode, "Exclude item " + (excludeNode.Level + 1));
-                }
-                else
-                {
-                    LogNode(excludeNode, "Fathomed (bound <= best value)");
-                }
-            }
-
-            // Map back to original item order if we sorted
-            var result = new bool[n];
-            if (bestNode != null)
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    result[i] = bestNode.Included[i];
-                }
-                return (bestNode.Value, result);
-            }
-
-            return (0, new bool[n]);
+            return false; // No trivial solution found
         }
 
-        private void LogNode(KnapsackNode node, string action)
+        // Create root node in the Solve method
+        private KnapsackNode CreateRootNode()
         {
-            var log = new StringBuilder();
-            log.AppendLine(OutputFormatter.CreateHeader($"Node: {node.Path} - {action}"));
-            log.AppendLine(OutputFormatter.FormatKeyValue("Level", node.Level + 1));
-            log.AppendLine(OutputFormatter.FormatKeyValue("Current Value", node.Value));
-            log.AppendLine(OutputFormatter.FormatKeyValue("Current Weight", $"{node.Weight} / {capacity}"));
-            log.AppendLine(OutputFormatter.FormatKeyValue("Upper Bound", node.Bound));
-            
-            if (bestNode != null)
+            return new KnapsackNode(n)
             {
-                log.AppendLine(OutputFormatter.FormatKeyValue("Best Value So Far", bestNode.Value));
-            }
-            
+                Level = -1,
+                Value = 0,
+                Weight = 0,
+                Bound = CalculateBound(new KnapsackNode(n)),
+                Included = new bool[n],
+                Path = "Root"
+            };
+        }
+
+        private void LogItems(StringBuilder log, KnapsackNode node, double[] values, double[] weights)
+        {
             log.Append("Items: ");
             bool anyIncluded = false;
             for (int i = 0; i <= node.Level; i++)
