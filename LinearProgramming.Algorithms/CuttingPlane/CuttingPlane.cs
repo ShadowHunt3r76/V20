@@ -760,8 +760,8 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             double bestFraction = 0.0;
 
             // Only scan ORIGINAL constraints, not the cuts added later
-            int lastOriginalRow = Math.Min(_numOriginalConstraints, rows - 1);
-            for (int i = 1; i <= lastOriginalRow; i++)
+            int lastOriginalRow = Math.Min(_numOriginalConstraints, rows - 1); // to ensure the index doesn't go out of bounds
+            for (int i = 1; i < lastOriginalRow; i++)
             {
                 double rhs = tableau[i, rhsIndex];
                 double frac = rhs - Math.Floor(rhs);

@@ -232,7 +232,17 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             
             // Initialize basis variables
             basis = InitializeBasisVariables(m);
-            
+
+            // Store basis indices for later use (printing, sensitivity analysis)
+            _basisIndices.Clear();
+            for (int i = 0; i < basis.Length; i++)
+            {
+                int idx = Array.IndexOf(_variableNames, basis[i]);
+                if (idx >= 0)
+                    _basisIndices.Add(idx);
+            }
+
+
             // Initialize solution
             solution = new LinearProgramSolution
             {
@@ -349,21 +359,31 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         {
             simplexMultipliers[i] = -tableau[0, _originalVarCount + i];
         }
-        
-        // Get basis indices
-        int[] basisIndices = new int[basis.Length];
-        if (_variableNames != null)
-        {
-            for (int i = 0; i < basis.Length; i++)
+
+            // Get basis indices
+            int[] basisIndices = new int[basis.Length];
+            if (_variableNames != null)
             {
-                // Find the index of the basis variable in the variable names array
-                int index = Array.IndexOf(_variableNames, basis[i]);
-                basisIndices[i] = index >= 0 ? index : -1;
+                for (int i = 0; i < basis.Length; i++)
+                {
+                    if (!string.IsNullOrEmpty(basis[i]))
+                    {   // Find the index of the basis variable in the variable names array
+                        int index = Array.IndexOf(_variableNames, basis[i]);
+                        basisIndices[i] = index >= 0 ? index : -1;
+                    }
+                    else
+                    {
+                        basisIndices[i] = -1; // mark invalid
+                    }
+                }
             }
-        }
-        
-        // Get non-basis indices
-        int[] nonBasisIndices = Array.Empty<int>();
+
+            // Update the class-wide basis indices as well
+            _basisIndices.Clear();
+            _basisIndices.AddRange(basisIndices.Where(idx => idx >= 0));
+
+            // Get non-basis indices
+            int[] nonBasisIndices = Array.Empty<int>();
         if (_variableNames != null)
         {
             var nonBasisVars = _variableNames.Except(basis).ToArray();
@@ -383,7 +403,10 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             NonBasisVariables = _variableNames?.Except(basis).ToArray() ?? Array.Empty<string>(),
             NonBasicVariableIndices = nonBasisIndices,
             BasicVariableValues = GetBasicVariableValues(tableau, basis),
-            PivotElement = leaving >= 0 && entering >= 0 ? tableau[leaving + 1, entering] : 0.0
+            PivotElement = (leaving >= 0 && leaving + 1 < tableau.GetLength(0) &&
+                entering >= 0 && entering < tableau.GetLength(1))
+                ? tableau[leaving + 1, entering]
+                : 0.0
         };
     }
 
@@ -414,10 +437,15 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 }
             }
         }
-        
-        // The objective value is in the bottom-right corner of the tableau (negated)
-        objectiveValue = -tableau[0, numVars];
-    }
+
+            // The objective value is in the bottom-right corner of the tableau (negated)
+            // Objective value: negate only if this was a maximization problem
+            if (model.OptimizationType == OptimizationType.Maximize)
+                objectiveValue = tableau[0, numVars];   // already negated inside tableau
+            else
+                objectiveValue = -tableau[0, numVars];  // for minimization, keep the negation
+        }
+    
     
     /// <summary>
     /// Gets the values of the basic variables from the tableau
@@ -840,20 +868,20 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         // Print rows
         for (int i = 0; i < rows; i++)
         {
-            // Print basis variable if available
-            if (i > 0 && _basisIndices != null && i - 1 < _basisIndices.Count)
-            {
-                int varIndex = _basisIndices[i - 1];
-                string basisVar = GetVariableName(varIndex);
-                sb.Append($"{basisVar,-5}\t");
-            }
-            else
-            {
-                sb.Append("     \t");
-            }
-            
-            // Print row values
-            for (int j = 0; j < cols; j++)
+                // Print basis variable if available
+                if (i > 0 && _basisIndices != null && i - 1 >= 0 && i - 1 < _basisIndices.Count)
+                {
+                    int varIndex = _basisIndices[i - 1];
+                    string basisVar = GetVariableName(varIndex);
+                    sb.Append($"{basisVar,-5}\t");
+                }
+                else
+                {
+                    sb.Append("     \t"); // empty space if no basis entry
+                }
+
+                // Print row values
+                for (int j = 0; j < cols; j++)
             {
                 if (j == cols - 1)
                     sb.Append("|");
@@ -968,11 +996,18 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 .Concat(Enumerable.Range(1, _artificialCount).Select(i => $"a{i}"))
                 .ToArray();
 
-            // Get the original objective coefficients
-            var objectiveCoefficients = model.ObjectiveCoefficients ?? Array.Empty<double>();
-            
-            // Get the original RHS values
-            var rhsCoefficients = model.RightHandSide;
+                // Get the original objective coefficients
+                // Pad coefficients with zeros for slack and artificial variables
+                var objectiveCoefficients = new double[_originalVarCount + _slackCount + _artificialCount];
+                if (model.ObjectiveCoefficients != null)
+                {
+                    for (int i = 0; i < _originalVarCount; i++)
+                        objectiveCoefficients[i] = model.ObjectiveCoefficients[i];
+                }
+
+
+                // Get the original RHS values
+                var rhsCoefficients = model.RightHandSide;
             
             // Get the constraint types
             var constraintTypes = model.ConstraintTypes;
