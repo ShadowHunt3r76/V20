@@ -1,53 +1,127 @@
 # Linear Programming and Integer Programming Solver
 
-A .NET 9 application that solves Linear Programming (LP) and basic Integer Programming (IP) models. This project was developed as part of the LPR 381 (Linear Programming) course, focusing on implementing core optimization algorithms with an emphasis on educational value and code clarity.
+A .NET 9 application that solves Linear Programming (LP) and Integer Programming (IP) models, including the Knapsack problem. This project was developed as part of the LPR 381 (Linear Programming) course, focusing on implementing core optimization algorithms with an emphasis on educational value and code clarity.
 
-## Project Overview
+## 🚀 Getting Started
 
-This Visual Studio project implements various optimization algorithms for solving linear programming and integer programming problems. The application accepts mathematical models via input text files and exports detailed results to output files.
+### Prerequisites
+- [.NET 9.0 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) or later
+- (Optional) Visual Studio 2022 or VS Code with C# extension
 
-## Architecture
+### Installation
+1. Clone the repository
+2. Navigate to the project directory:
+   ```bash
+   cd V20
+   ```
 
-The solution consists of four main projects:
+### Running the Application
 
-- **LinearProgrammingApp** - Console application and main entry point
-- **LinearProgramming.Parsing** - Input file parsing and model representation
-- **LinearProgramming.Algorithms** - Implementation of optimization algorithms
-- **LinearProgramming.Tests** - Unit tests for validation
+#### Method 1: Using Command Line Arguments
+```bash
+dotnet run --project LinearProgrammingApp -- [input_file] [output_file]
+```
 
-## ✅ Implemented Features
+Example:
+```bash
+dotnet run --project LinearProgrammingApp -- knapsack_problem.txt solution.txt
+```
 
-### Input/Output System
-- **Universal Input Parser** - Accepts text files with mathematical models in the specified format
-- **Flexible Variable Support** - Handles any number of decision variables
-- **Flexible Constraint Support** - Handles any number of constraints
-- **Variable Type Support** - Supports +, -, urs, int, bin variable types
-- **Constraint Type Support** - Handles <=, >=, = constraints
-- **Error Handling** - Input validation and error reporting
+#### Method 2: Interactive Mode
+1. Run without arguments:
+   ```bash
+   dotnet run --project LinearProgrammingApp
+   ```
+2. Follow the on-screen prompts to:
+   - Enter the path to your input file
+   - Select a solver from the menu
+   - View and save the solution
 
-### Core Algorithms
-- **Primal Simplex Algorithm** - Tableau-based implementation
-- **Revised Primal Simplex Algorithm** - Matrix-based implementation with Phase I/II method
-- **Canonical Form Conversion** - Automatic conversion from input format to canonical form
-- **Artificial Variables** - Management of artificial variables for = and >= constraints
-- **Special Cases** - Handles infeasible and unbounded solutions
+## 🧩 Supported Problems
 
-### Code Quality
-- **Documentation** - XML documentation for public APIs
-- **Error Handling** - Basic error handling and input validation
-- **Object-Oriented Design** - Follows basic OOP principles
-- **Unit Tests** - Basic test coverage for core functionality
+### 1. Linear Programming (LP)
+- **Primal Simplex Algorithm**
+- **Revised Primal Simplex Algorithm**
 
-### Mathematical Implementation
-- **Phase I/II Method** - Basic implementation for artificial variables
-- **Numerical Stability** - Basic floating-point tolerance handling
-- **Basis Management** - Basic basis handling
+### 2. Integer Programming (IP)
+- **Branch and Bound**
+- **Cutting Plane Method**
 
-### Output
-- **Solution Display** - Shows solution vector and objective value
-- **Status Reporting** - Basic status reporting (Optimal/Infeasible/Unbounded)
+### 3. Knapsack Problem
+- **Dynamic Programming Solution**
+- **Binary Decision Variables**
 
-## Input File Format
+## 📝 Input File Format
+
+The input file must follow this structure:
+
+```
+[objective] [coefficient1] [coefficient2] ... [coefficientN]
+[constraint1_coefficients] [relation] [rhs]
+[constraint2_coefficients] [relation] [rhs]
+...
+[var1_type] [var2_type] ... [varN_type]
+```
+
+### Example: Knapsack Problem
+```
+max +2 +3 +3 +5 +2 +4
++11 +8 +6 +14 +10 +10 <= 40
+bin bin bin bin bin bin
+```
+
+### Example: Linear Program
+```
+max +3 +2
++1 +2 <= 6
++1 +1 <= 4
++ +1 <= 3
++ +
+```
+
+## 🛠️ Solvers
+
+1. **Primal Simplex (LP)** - Best for small to medium linear programs
+2. **Revised Primal Simplex (LP)** - More efficient for larger problems
+3. **Branch and Bound (IP)** - For integer programming problems
+4. **Cutting Plane (IP)** - Alternative method for IP problems
+5. **Knapsack Solver** - Specialized for binary knapsack problems
+
+## 📂 Project Structure
+
+- `LinearProgrammingApp/` - Main console application
+- `LinearProgramming.Parsing/` - Input parsing and model representation
+- `LinearProgramming.Algorithms/` - Core optimization algorithms
+  - `PrimalSimplex/` - Tableau-based simplex implementation
+  - `BranchAndBound/` - Integer programming solver
+  - `CuttingPlane/` - Alternative IP solver
+  - `Knapsack/` - Specialized knapsack solver
+- `LinearProgramming.Tests/` - Unit tests
+
+## 📊 Output
+
+Solutions are saved to the specified output file and include:
+- Optimal solution (if found)
+- Objective value
+- Variable values
+- Solution status (Optimal/Infeasible/Unbounded)
+
+## 🧪 Testing
+
+Run all tests with:
+```bash
+dotnet test
+```
+
+## 📚 Documentation
+
+- XML documentation is available in the code
+- Algorithm implementations include detailed comments
+- Test cases serve as usage examples
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 The application accepts input files in the following format:
 
