@@ -10,7 +10,7 @@ namespace LinearProgramming.Algorithms.Knapsack
     /// <summary>
     /// Provides sensitivity analysis for the Knapsack problem solution
     /// </summary>
-    public class KnapsackSensitivityAnalysis : BaseSensitivityAnalysis
+    public class KnapsackSensitivityAnalysis : BaseSensitivityAnalysis, ISensitivityAnalysis
     {
         private readonly double[] _weights;
         private readonly double[] _values;
@@ -18,6 +18,30 @@ namespace LinearProgramming.Algorithms.Knapsack
         private readonly bool[] _solution;
         private readonly double _optimalValue;
         private readonly int _itemCount;
+        
+        private void PrintSectionHeader(string title)
+        {
+            Console.WriteLine("\n" + new string('=', 80));
+            Console.WriteLine(title);
+            Console.WriteLine(new string('-', title.Length));
+        }
+        
+        private void PrintSectionFooter()
+        {
+            Console.WriteLine(new string('=', 80) + "\n");
+        }
+        
+        // Visualization data storage
+        private Dictionary<string, (double min, double current, double max)> _objectiveRanges = new();
+        private Dictionary<string, (double min, double current, double max)> _rhsRanges = new();
+        private Dictionary<string, double> _shadowPrices = new();
+        private Dictionary<string, double> _reducedCosts = new();
+        // Removed _totalWeight field to avoid redundancy
+        protected bool IsZero(double value)
+        {
+            return Math.Abs(value) < Epsilon;
+        }
+        
 
         /// <summary>
         /// Initializes a new instance of the KnapsackSensitivityAnalysis class
@@ -35,6 +59,7 @@ namespace LinearProgramming.Algorithms.Knapsack
             _solution = solution ?? throw new ArgumentNullException(nameof(solution));
             _optimalValue = optimalValue;
             _itemCount = weights.Length;
+            // Remove _totalWeight field since we'll calculate it on demand
 
             if (values.Length != _itemCount)
                 throw new ArgumentException("Number of values must match number of weights");
@@ -45,11 +70,18 @@ namespace LinearProgramming.Algorithms.Knapsack
         /// <summary>
         /// Performs complete sensitivity analysis on the Knapsack solution
         /// </summary>
-        public void PerformAnalysis()
+        /// <summary>
+        /// Performs complete sensitivity analysis on the Knapsack solution
+        /// </summary>
+        public override void PerformAnalysis()
         {
-            Console.WriteLine("\n" + new string('=', 80));
-            Console.WriteLine("KNAPSACK SENSITIVITY ANALYSIS");
-            Console.WriteLine(new string('=', 80));
+            PrintSectionHeader("KNAPSACK SENSITIVITY ANALYSIS");
+            
+            // Clear previous visualization data
+            _objectiveRanges.Clear();
+            _rhsRanges.Clear();
+            _shadowPrices.Clear();
+            _reducedCosts.Clear();
 
             // 1. Basic solution information
             DisplaySolutionInfo();
@@ -65,19 +97,31 @@ namespace LinearProgramming.Algorithms.Knapsack
 
             // 5. Critical items analysis
             AnalyzeCriticalItems();
-
-            Console.WriteLine("\n" + new string('=', 80));
-            Console.WriteLine("END OF SENSITIVITY ANALYSIS");
-            Console.WriteLine(new string('=', 80));
+            
+            // 6. Display visualizations
+            DisplayVisualizations();
+            
+            PrintSectionFooter();
         }
 
         private void DisplaySolutionInfo()
         {
-            Console.WriteLine("\nSOLUTION INFORMATION");
-            Console.WriteLine(new string('-', 40));
+            PrintSubsectionHeader("SOLUTION INFORMATION");
             Console.WriteLine($"Optimal Value: {_optimalValue:F2}");
-            Console.WriteLine($"Total Weight: {_totalWeight:F2} / {_capacity:F2} ({_totalWeight / _capacity * 100:F1}% of capacity)");
+            double totalWeight = CalculateTotalWeight(_solution, _weights);
+            Console.WriteLine($"Total Weight: {totalWeight:F2} / {_capacity:F2} ({totalWeight / _capacity * 100:F1}% of capacity)");
             Console.WriteLine($"Items in Knapsack: {_solution.Count(x => x)} of {_itemCount}");
+            
+            // Store RHS range for capacity constraint
+            _rhsRanges["Capacity"] = (0, _capacity, double.PositiveInfinity);
+            
+            // Store objective coefficients and reduced costs
+            for (int i = 0; i < _itemCount; i++)
+            {
+                string varName = $"Item {i + 1}";
+                _objectiveRanges[varName] = (0, _values[i], _values[i]); // Will be updated in AnalyzeValueSensitivity
+                _reducedCosts[varName] = _solution[i] ? 0 : _values[i]; // Simplified reduced cost
+            }
             
             Console.WriteLine("\nSelected Items:");
             for (int i = 0; i < _itemCount; i++)
@@ -90,13 +134,115 @@ namespace LinearProgramming.Algorithms.Knapsack
             }
         }
 
+        #region ISensitivityAnalysis Implementation
+        
+        /// <inheritdoc />
+        public override (double lowerBound, double upperBound) GetRHSRange(int constraintIndex)
+        {
+            if (constraintIndex != 0)
+                throw new ArgumentOutOfRangeException(nameof(constraintIndex), "Knapsack has only one constraint (capacity)");
+                
+            if (_rhsRanges.TryGetValue("Capacity", out var range))
+                return (range.min, range.max);
+            return (0, double.PositiveInfinity);
+        }
+        
+        /// <inheritdoc />
+        public override (double lowerBound, double upperBound) GetObjectiveCoefficientRange(int variableIndex)
+        {
+            if (variableIndex < 0 || variableIndex >= _itemCount)
+                throw new ArgumentOutOfRangeException(nameof(variableIndex));
+                
+            string varName = $"Item {variableIndex + 1}";
+            if (_objectiveRanges.TryGetValue(varName, out var range))
+                return (range.min, range.max);
+            return (0, double.PositiveInfinity);
+        }
+        
+        /// <inheritdoc />
+        public override double GetReducedCost(int variableIndex)
+        {
+            if (variableIndex < 0 || variableIndex >= _itemCount)
+                throw new ArgumentOutOfRangeException(nameof(variableIndex));
+                
+            string varName = $"Item {variableIndex + 1}";
+            return _reducedCosts.TryGetValue(varName, out var cost) ? cost : 0;
+        }
+        
+        /// <inheritdoc />
+        public override double GetShadowPrice(int constraintIndex)
+        {
+            if (constraintIndex != 0)
+                throw new ArgumentOutOfRangeException(nameof(constraintIndex), "Knapsack has only one constraint (capacity)");
+                
+            return _shadowPrices.TryGetValue("Capacity", out var price) ? price : 0;
+        }
+        
+        /// <inheritdoc />
+        public override Dictionary<string, double> GetSolutionValues()
+        {
+            return _variableNames
+                .Select((name, index) => new { name, value = _solution[index] ? 1.0 : 0.0 })
+                .ToDictionary(x => x.name, x => x.value);
+        }
+        
+        #endregion
+        
+        #region Visualization
+        
+        private void DisplayVisualizations()
+        {
+            PrintSubsectionHeader("VISUALIZATION");
+            
+            // Display objective coefficient ranges
+            Console.WriteLine("\nObjective Coefficient Ranges (per item):");
+            var objectiveData = _objectiveRanges
+                .OrderByDescending(kv => kv.Value.current)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+            Console.WriteLine(SensitivityVisualizer.CreateBarChart("Objective Coefficient Ranges", objectiveData, 60));
+            
+            // Display shadow prices (for capacity constraint)
+            if (_shadowPrices.Any())
+            {
+                Console.WriteLine("\nShadow Price (Value per Unit of Capacity):");
+                var shadowPriceData = new Dictionary<string, double>
+                {
+                    { "Capacity", _shadowPrices.Values.First() }
+                };
+                Console.WriteLine(SensitivityVisualizer.CreateHistogram(
+                    "Shadow Price",
+                    shadowPriceData));
+            }
+            
+            // Display reduced costs
+            Console.WriteLine("\nReduced Costs (Potential Value if Item is Added/Removed):");
+            var reducedCosts = _reducedCosts
+                .OrderByDescending(kv => Math.Abs(kv.Value))
+                .Where(kv => !IsZero(kv.Value)) // Only show non-zero reduced costs
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+            
+            if (reducedCosts.Any())
+            {
+                Console.WriteLine(SensitivityVisualizer.CreateHistogram(
+                    "Reduced Costs",
+                    reducedCosts));
+            }
+            else
+            {
+                Console.WriteLine("  No reduced costs (all items are at their optimal inclusion/exclusion)");
+            }
+        }
+        
+        #endregion
+        
         private void AnalyzeCapacitySensitivity()
         {
             Console.WriteLine("\nCAPACITY SENSITIVITY");
             Console.WriteLine(new string('-', 40));
 
             // Calculate slack capacity using safe comparison
-            double slack = _capacity - _totalWeight;
+            double totalWeight = CalculateTotalWeight(_solution, _weights);
+            double slack = _capacity - totalWeight;
             Console.WriteLine($"Current Slack: {slack:F6}");
 
             // Calculate minimum capacity reduction before solution becomes infeasible
@@ -110,7 +256,7 @@ namespace LinearProgramming.Algorithms.Knapsack
             }
             
             // Check if the knapsack is full (within numerical tolerance)
-            bool isFull = IsZero(slack, Epsilon * 10);
+            bool isFull = Math.Abs(slack) < Epsilon * 10;
             Console.WriteLine($"Knapsack is {(isFull ? "full" : "not full")} (slack: {slack:E2})");
             
             if (isFull)
@@ -124,6 +270,19 @@ namespace LinearProgramming.Algorithms.Knapsack
                         minIncrease = Math.Min(minIncrease, _weights[i] - slack);
                     }
                 }
+                // Calculate shadow price (marginal value of additional capacity)
+                double shadowPrice = 0;
+                if (Math.Abs(totalWeight - _capacity) < Epsilon)
+                {
+                    // If knapsack is full, shadow price is the value/weight ratio of the best excluded item
+                    shadowPrice = _values
+                        .Select((v, i) => !_solution[i] ? v / _weights[i] : 0)
+                        .DefaultIfEmpty(0)
+                        .Max();
+                    
+                    // Store for visualization
+                    _shadowPrices["Capacity"] = shadowPrice;
+                }  
                 if (double.IsFinite(minIncrease) && minIncrease > 0)
                 {
                     Console.WriteLine($"  Need to increase capacity by at least {minIncrease:F6} to add another item");
@@ -181,7 +340,7 @@ namespace LinearProgramming.Algorithms.Knapsack
                     // Check against all excluded items that could potentially replace this item
                     for (int j = 0; j < _itemCount; j++)
                     {
-                        if (!_solution[j] && _weights[j] <= _capacity - _totalWeight + _weights[i] + Epsilon)
+                        if (!_solution[j] && _weights[j] <= _capacity - CalculateTotalWeight(_solution, _weights) + _weights[i] + Epsilon)
                         {
                             // Calculate the break-even point where the excluded item becomes more attractive
                             double decrease = _values[i] - (valueToWeight[j] * _weights[i]);
@@ -203,7 +362,7 @@ namespace LinearProgramming.Algorithms.Knapsack
                     // Find the best item to potentially remove to include this one
                     for (int j = 0; j < _itemCount; j++)
                     {
-                        if (_solution[j] && _weights[i] <= _capacity - _totalWeight + _weights[j] + Epsilon)
+                        if (_solution[j] && _weights[i] <= _capacity - CalculateTotalWeight(_solution, _weights) + _weights[j] + Epsilon)
                         {
                             // Calculate how much we need to increase this item's value to make it worth including
                             double increase = (valueToWeight[j] * _weights[i]) - _values[i];
@@ -233,67 +392,65 @@ namespace LinearProgramming.Algorithms.Knapsack
 
             for (int i = 0; i < _itemCount; i++)
             {
+                string varName = $"Item {i + 1}";
+                
                 if (_solution[i])
                 {
-                    // For included items, find the maximum possible weight increase
-                    double maxIncrease = remainingCapacity + _weights[i];
+                    // For included items, how much can we decrease the value before it's no longer optimal to include it?
+                    double minValue = 0; // Can't go below zero
+                    double maxValue = double.PositiveInfinity; // Can increase without bound
                     
-                    // Check if removing this item would allow adding better items
-                    double bestReplacementValue = 0;
+                    // Find the best excluded item that could replace this one
                     for (int j = 0; j < _itemCount; j++)
                     {
-                        if (!_solution[j] && _weights[j] <= _weights[i] + remainingCapacity + Epsilon)
+                        if (!_solution[j] && _weights[j] <= _weights[i])
                         {
-                            bestReplacementValue = Math.Max(bestReplacementValue, _values[j]);
+                            double ratio = _values[j] / _weights[j];
+                            double threshold = ratio * _weights[i];
+                            minValue = Math.Max(minValue, threshold);
                         }
                     }
                     
-                    string replacementInfo = bestReplacementValue > _values[i] + Epsilon ? 
-                        $" (could be replaced by better item worth {bestReplacementValue:F2})" : "";
+                    // Update objective range for visualization
+                    _objectiveRanges[varName] = (minValue, _values[i], maxValue);
+                    _reducedCosts[varName] = 0; // Included items have zero reduced cost
                     
-                    Console.WriteLine($"Item {i + 1}: Weight can increase by {maxIncrease:F6} before making solution infeasible{replacementInfo}");
+                    Console.WriteLine($"Item {i + 1} (included): Value can decrease to {minValue:F2} before being excluded");
                 }
                 else
                 {
-                    // For excluded items, find the minimum weight decrease needed to include it
-                    double minDecrease = _weights[i] - remainingCapacity;
+                    // For excluded items, how much must the value increase to be included?
+                    double threshold = 0;
                     
-                    if (minDecrease > Epsilon)
+                    // Find the combination of items that would be replaced
+                    double availableCapacity = _capacity - CalculateTotalWeight(_solution, _weights);
+                    
+                    if (_weights[i] > availableCapacity)
                     {
-                        // Calculate which items would need to be removed to include this one
-                        var potentialRemovals = new List<int>();
-                        double weightToFree = minDecrease;
-                        
-                        // Simple greedy approach to find items to remove
-                        var candidates = Enumerable.Range(0, _itemCount)
-                            .Where(j => _solution[j])
-                            .OrderBy(j => _values[j] / _weights[j])
-                            .ToList();
-                            
-                        foreach (var j in candidates)
-                        {
-                            if (weightToFree <= 0) break;
-                            potentialRemovals.Add(j);
-                            weightToFree -= _weights[j];
-                        }
-                        
-                        string removalInfo = potentialRemovals.Any() ? 
-                            $" (would require removing items: {string.Join(", ", potentialRemovals.Select(x => x + 1))})" : "";
-                        
-                        Console.WriteLine($"Item {i + 1}: Weight must decrease by {minDecrease:F6} to be included{removalInfo}");
+                        // Need to remove some items to make room
+                        // This is a simplification - in practice would need to solve a subproblem
+                        threshold = _values[i] / _weights[i];
                     }
-                    else
-                    {
-                        Console.WriteLine($"Item {i + 1}: Could be included without weight change (value: {_values[i]:F2}, value/weight: {_values[i]/_weights[i]:F2})");
-                    }
+                    
+                    // Update objective range and reduced cost for visualization
+                    _objectiveRanges[varName] = (0, _values[i], threshold);
+                    _reducedCosts[varName] = _values[i] - threshold; // Reduced cost is the opportunity cost
+                    
+                    Console.WriteLine($"Item {i + 1} (excluded): Value must increase to {threshold:F2} to be included");
                 }
             }
         }
 
+        private void PrintSubsectionHeader(string title)
+        {
+            Console.WriteLine("\n" + new string('=', 80));
+            Console.WriteLine($"{title}");
+            Console.WriteLine(new string('-', title.Length));
+        }
+
         private void AnalyzeCriticalItems()
         {
-            Console.WriteLine("\nCRITICAL ITEMS ANALYSIS");
-            Console.WriteLine(new string('-', 40));
+            PrintSubsectionHeader("CRITICAL ITEMS ANALYSIS");
 
             var criticalItems = new List<int>();
             var nonCriticalItems = new List<int>();
@@ -306,7 +463,7 @@ namespace LinearProgramming.Algorithms.Knapsack
                 if (!_solution[i]) continue;
                 
                 // Calculate the best possible solution without this item
-                double remainingCapacity = _capacity - _totalWeight + _weights[i];
+                double remainingCapacity = _capacity - CalculateTotalWeight(_solution, _weights) + _weights[i];
                 
                 // Use a greedy approach to find the best items that fit
                 var potentialItems = Enumerable.Range(0, _itemCount)
@@ -353,7 +510,7 @@ namespace LinearProgramming.Algorithms.Knapsack
                 foreach (var i in nonCriticalItems)
                 {
                     var alternatives = new List<string>();
-                    double remainingCapacity = _capacity - _totalWeight + _weights[i];
+                    double remainingCapacity = _capacity - CalculateTotalWeight(_solution, _weights) + _weights[i];
                     
                     // Find items that could replace this one
                     for (int j = 0; j < _itemCount; j++)
@@ -399,8 +556,10 @@ namespace LinearProgramming.Algorithms.Knapsack
             return total;
         }
 
-        private static double CalculateTotalWeight(bool[] solution, double[] weights)
+        private double CalculateTotalWeight(bool[] solution, double[] weights)
         {
+            if (solution == null || weights == null || solution.Length != weights.Length)
+                return 0;
             double total = 0;
             for (int i = 0; i < solution.Length; i++)
             {

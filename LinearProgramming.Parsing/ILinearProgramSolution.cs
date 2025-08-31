@@ -47,6 +47,11 @@ namespace LinearProgramming.Parsing
         /// Gets or sets the names of the basis variables in the final tableau
         /// </summary>
         string[] BasisVariables { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the indices of the basis variables in the final tableau
+        /// </summary>
+        int[] BasisIndices { get; set; }
 
         /// <summary>
         /// Gets or sets the canonical matrix (A) of the linear program

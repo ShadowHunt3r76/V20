@@ -10,7 +10,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
     /// <summary>
     /// Provides sensitivity analysis for Simplex method solutions
     /// </summary>
-    public class SimplexSensitivityAnalysis : BaseSensitivityAnalysis
+    public class SimplexSensitivityAnalysis : BaseSensitivityAnalysis, ISensitivityAnalysis
     {
         private readonly double[,] _finalTableau;
         private readonly int[] _basisIndices;
@@ -49,7 +49,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         /// <summary>
         /// Performs complete sensitivity analysis on the simplex solution
         /// </summary>
-        public void PerformAnalysis()
+        public override void PerformAnalysis()
         {
             Console.WriteLine("\n" + new string('=', 80));
             Console.WriteLine("SIMPLEX SENSITIVITY ANALYSIS");
@@ -74,10 +74,20 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
 
                 // 6. Allowable ranges for non-basic variables
                 AnalyzeNonBasicVariables();
+
+                // 7. Generate and display visualization
+                Console.WriteLine("\n" + new string('-', 40));
+                Console.WriteLine("VISUALIZATION");
+                Console.WriteLine(new string('-', 40));
+                Console.WriteLine(GenerateVisualization());
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"\n⚠ Error during sensitivity analysis: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
             }
 
             Console.WriteLine("\n" + new string('=', 80));
@@ -111,72 +121,79 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             Console.WriteLine(new string('-', 40));
 
             int numVars = _variableNames.Length;
-            int numSlacks = _constraintTypes.Length;
+            var objectiveRanges = new Dictionary<string, (double min, double current, double max)>();
             
-            // For each non-basic variable
-            for (int j = 0; j < numVars; j++)
+            // For each variable
+            for (int varIndex = 0; varIndex < numVars; varIndex++)
             {
-                if (!_basisIndices.Contains(j))
+                string varName = _variableNames[varIndex];
+                double currentCoefficient = _objectiveCoefficients[varIndex];
+                
+                if (_basisIndices.Contains(varIndex))
                 {
-                    // Find the column in the tableau corresponding to this variable
-                    int col = -1;
-                    for (int k = 0; k < _finalTableau.GetLength(1) - 1; k++)
-                    {
-                        if (_finalTableau[0, k].AlmostEquals(_objectiveCoefficients[j], Epsilon))
-                        {
-                            col = k;
-                            break;
-                        }
-                    }
+                    // Basic variable - calculate allowable increase and decrease
+                    double maxIncrease = double.PositiveInfinity;
+                    double maxDecrease = double.PositiveInfinity;
+                    int basisRow = Array.IndexOf(_basisIndices, varIndex) + 1; // +1 because of objective row
                     
-                    if (col >= 0)
-                    {
-                        double reducedCost = _finalTableau[0, col];
-                        double currentCoef = _objectiveCoefficients[j];
-                        double lowerBound = currentCoef - reducedCost;
-                        
-                        Console.WriteLine($"{_variableNames[j]}: Current = {currentCoef:F6}");
-                        Console.WriteLine($"  Reduced Cost: {reducedCost:F6}");
-                        Console.WriteLine($"  Range: [{lowerBound:F6}, +∞)");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"{_variableNames[j]}: Could not determine reduced cost - variable not found in tableau");
-                    }
-                }
-            }
-            
-            // For each basic variable
-            for (int i = 0; i < _basisIndices.Length; i++)
-            {
-                int varIndex = _basisIndices[i];
-                if (varIndex < numVars) // Only original variables, not slacks
-                {
-                    // Calculate range for basic variable's coefficient
-                    double lowerBound = double.NegativeInfinity;
-                    double upperBound = double.PositiveInfinity;
-                    
+                    // For each non-basic variable
                     for (int j = 0; j < _finalTableau.GetLength(1) - 1; j++)
                     {
-                        if (Math.Abs(_finalTableau[0, j]) > Epsilon && Math.Abs(_finalTableau[i + 1, j]) > Epsilon)
+                        if (!_basisIndices.Contains(j) && !_finalTableau[basisRow, j].AlmostEquals(0, Epsilon))
                         {
-                            double ratio = _finalTableau[0, j] / _finalTableau[i + 1, j];
-                            if (_finalTableau[i + 1, j] > 0)
+                            double ratio = -_finalTableau[0, j] / _finalTableau[basisRow, j];
+                            if (ratio > 0)
                             {
-                                upperBound = Math.Min(upperBound, ratio);
+                                maxIncrease = Math.Min(maxIncrease, ratio);
                             }
                             else
                             {
-                                lowerBound = Math.Max(lowerBound, ratio);
+                                maxDecrease = Math.Min(maxDecrease, -ratio);
                             }
                         }
                     }
                     
-                    double currentCoef = _objectiveCoefficients[varIndex];
-                    Console.WriteLine($"{_variableNames[varIndex]}: Current = {currentCoef:F6}");
-                    Console.WriteLine($"  Range: [{(double.IsNegativeInfinity(lowerBound) ? "-∞" : (currentCoef + lowerBound).ToString("F6"))}, " +
-                                    $"{(double.IsPositiveInfinity(upperBound) ? "+∞" : (currentCoef + upperBound).ToString("F6"))}]");
+                    Console.WriteLine($"{varName} (basic):");
+                    Console.WriteLine($"  Current coefficient: {currentCoefficient:F6}");
+                    Console.WriteLine($"  Allowable increase: {(double.IsInfinity(maxIncrease) ? "∞" : maxIncrease.ToString("F6"))}");
+                    Console.WriteLine($"  Allowable decrease: {(double.IsInfinity(maxDecrease) ? "∞" : maxDecrease.ToString("F6"))}");
+                    Console.WriteLine($"  Range: [{currentCoefficient - maxDecrease:F6}, {currentCoefficient + maxIncrease:F6}]");
+                    
+                    // Store for visualization
+                    objectiveRanges[varName] = (
+                        min: currentCoefficient - maxDecrease,
+                        current: currentCoefficient,
+                        max: currentCoefficient + maxIncrease
+                    );
                 }
+                else
+                {
+                    // Non-basic variable - range is from -∞ to current + reduced cost
+                    double reducedCost = _finalTableau[0, varIndex];
+                    double upperBound = currentCoefficient + reducedCost;
+                    
+                    Console.WriteLine($"{varName} (non-basic):");
+                    Console.WriteLine($"  Current coefficient: {currentCoefficient:F6}");
+                    Console.WriteLine($"  Reduced cost: {reducedCost:F6}");
+                    Console.WriteLine($"  Range: (-∞, {upperBound:F6}]");
+                    
+                    // Store for visualization
+                    objectiveRanges[varName] = (
+                        min: double.NegativeInfinity,
+                        current: currentCoefficient,
+                        max: upperBound
+                    );
+                }
+            }
+            
+            // Add visualization for objective coefficient ranges
+            if (objectiveRanges.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateBarChart(
+                    "OBJECTIVE COEFFICIENT RANGES",
+                    objectiveRanges,
+                    width: 50
+                ));
             }
         }
 
@@ -243,61 +260,79 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             }
         }
 
+        private Dictionary<string, double> _reducedCosts = new();
+        
         private void AnalyzeReducedCosts()
         {
             Console.WriteLine("\nREDUCED COSTS");
             Console.WriteLine(new string('-', 40));
-
-            int numVars = _variableNames.Length;
             
-            for (int j = 0; j < numVars; j++)
+            // Clear previous reduced costs
+            _reducedCosts.Clear();
+            var nonZeroReducedCosts = new Dictionary<string, double>();
+
+            for (int j = 0; j < _variableNames.Length; j++)
             {
-                if (!_basisIndices.Contains(j))
+                if (!_basisIndices.Contains(j)) // Only for non-basic variables
                 {
-                    double reducedCost = 0;
-                    // Find the column in the tableau corresponding to this variable
-                    for (int k = 0; k < _finalTableau.GetLength(1) - 1; k++)
-                    {
-                        if (Math.Abs(_finalTableau[0, k] - _objectiveCoefficients[j]) < Epsilon)
-                        {
-                            reducedCost = _finalTableau[0, k];
-                            break;
-                        }
-                    }
+                    double reducedCost = _finalTableau[0, j];
+                    _reducedCosts[_variableNames[j]] = reducedCost;
                     
-                    Console.WriteLine($"{_variableNames[j]}: {reducedCost:F6}");
-                    Console.WriteLine($"  Interpretation: The objective would decrease by {reducedCost:F6} per unit increase in {_variableNames[j]}'s value");
+                    if (Math.Abs(reducedCost) > Epsilon)
+                    {
+                        Console.WriteLine($"{_variableNames[j]}: {reducedCost:F6}");
+                        Console.WriteLine($"  Interpretation: The objective would change by {reducedCost:F6} if this variable enters the basis");
+                        nonZeroReducedCosts[_variableNames[j]] = reducedCost;
+                    }
                 }
-                else
-                {
-                    Console.WriteLine($"{_variableNames[j]}: 0.000000 (basic variable)");
-                }
+            }
+            
+            // Add visualization for non-zero reduced costs
+            if (nonZeroReducedCosts.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateHistogram(
+                    "NON-ZERO REDUCED COSTS",
+                    nonZeroReducedCosts,
+                    height: 10,
+                    width: 50
+                ));
             }
         }
 
+        private Dictionary<string, double> _shadowPrices = new();
+        
         private void AnalyzeShadowPrices()
         {
-            Console.WriteLine("\nSHADOW PRICES (DUAL VARIABLES)");
+            Console.WriteLine("\nSHADOW PRICES");
             Console.WriteLine(new string('-', 40));
 
-            int numConstraints = _constraintTypes.Length;
+            int numSlacks = _finalTableau.GetLength(1) - _variableNames.Length - 1; // Exclude RHS column and original variables
             
-            for (int i = 0; i < numConstraints; i++)
+            // Clear previous shadow prices
+            _shadowPrices.Clear();
+            
+            for (int i = 0; i < numSlacks && i < _constraintTypes.Length; i++)
             {
-                double shadowPrice = 0;
+                int slackIndex = _variableNames.Length + i;
+                double shadowPrice = _finalTableau[0, slackIndex];
+                string constraintName = $"Constraint {i + 1} ({_constraintTypes[i]})";
                 
-                // Find the basic variable that corresponds to this constraint's slack
-                for (int row = 0; row < _basisIndices.Length; row++)
-                {
-                    if (_basisIndices[row] == numConstraints + i) // Slack variable for this constraint
-                    {
-                        shadowPrice = _finalTableau[0, numConstraints + i];
-                        break;
-                    }
-                }
-                
-                Console.WriteLine($"Constraint {i + 1} ({_constraintTypes[i]}): {shadowPrice:F6}");
+                Console.WriteLine($"{constraintName}: {shadowPrice:F6}");
                 Console.WriteLine($"  Interpretation: The objective would change by {shadowPrice:F6} per unit increase in the RHS");
+                
+                // Store for visualization
+                _shadowPrices[constraintName] = shadowPrice;
+            }
+            
+            // Add visualization for shadow prices
+            if (_shadowPrices.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateHistogram(
+                    "SHADOW PRICES (DUAL VARIABLES)",
+                    _shadowPrices,
+                    height: 10,
+                    width: 50
+                ));
             }
         }
 
@@ -306,41 +341,63 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             Console.WriteLine("\nNON-BASIC VARIABLES ANALYSIS");
             Console.WriteLine(new string('-', 40));
 
-            int numVars = _variableNames.Length;
-            int numConstraints = _constraintTypes.Length;
+            int numVars = _finalTableau.GetLength(1) - 1; // Exclude RHS column
+            int numConstraints = _finalTableau.GetLength(0) - 1; // Exclude objective row
+
+            // Prepare data for visualization
+            var nonBasicVars = new Dictionary<string, (double min, double current, double max)>();
             
             for (int j = 0; j < numVars; j++)
             {
                 if (!_basisIndices.Contains(j))
                 {
-                    Console.WriteLine($"\n{_variableNames[j]} (non-basic):");
+                    string varName = j < _variableNames.Length ? _variableNames[j] : $"x{j + 1}";
+                    double reducedCost = _finalTableau[0, j];
                     
-                    // Find the column in the tableau corresponding to this variable
-                    for (int k = 0; k < _finalTableau.GetLength(1) - 1; k++)
+                    Console.WriteLine($"{varName} (reduced cost = {reducedCost:F6}):");
+                    Console.WriteLine($"  Current value: 0 (non-basic)");
+                    
+                    // Calculate allowable increase/decrease for this non-basic variable
+                    double maxIncrease = double.PositiveInfinity;
+                    double maxDecrease = double.PositiveInfinity;
+                    
+                    for (int i = 0; i < numConstraints; i++)
                     {
-                        if (Math.Abs(_finalTableau[0, k] - _objectiveCoefficients[j]) < Epsilon)
+                        double a_ij = _finalTableau[i + 1, j];
+                        double b_i = _finalTableau[i + 1, numVars];
+                        
+                        if (a_ij > Epsilon)
                         {
-                            double reducedCost = _finalTableau[0, k];
-                            Console.WriteLine($"  Reduced Cost: {reducedCost:F6}");
-                            
-                            // Find the entering variable's impact on basic variables
-                            for (int i = 0; i < _basisIndices.Length; i++)
-                            {
-                                int basisVarIndex = _basisIndices[i];
-                                double ratio = _finalTableau[i + 1, k] / _finalTableau[i + 1, _finalTableau.GetLength(1) - 1];
-                                
-                                if (Math.Abs(_finalTableau[i + 1, k]) > Epsilon)
-                                {
-                                    string basisVarName = basisVarIndex < _variableNames.Length ? 
-                                        _variableNames[basisVarIndex] : $"s{basisVarIndex - numVars + 1}";
-                                    
-                                    Console.WriteLine($"  Would affect {basisVarName} with ratio {ratio:F6}");
-                                }
-                            }
-                            break;
+                            double ratio = b_i / a_ij;
+                            maxIncrease = Math.Min(maxIncrease, ratio);
+                        }
+                        else if (a_ij < -Epsilon)
+                        {
+                            double ratio = b_i / a_ij;
+                            maxDecrease = Math.Min(maxDecrease, -ratio);
                         }
                     }
+                    
+                    Console.WriteLine($"  Allowable increase: {(double.IsInfinity(maxIncrease) ? "∞" : maxIncrease.ToString("F6"))}");
+                    Console.WriteLine($"  Allowable decrease: {(double.IsInfinity(maxDecrease) ? "∞" : maxDecrease.ToString("F6"))}");
+                    
+                    // Store for visualization
+                    nonBasicVars[varName] = (
+                        min: -maxDecrease,
+                        current: 0,
+                        max: maxIncrease
+                    );
                 }
+            }
+            
+            // Add visualization for non-basic variables
+            if (nonBasicVars.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateBarChart(
+                    "NON-BASIC VARIABLES RANGES",
+                    nonBasicVars,
+                    width: 40
+                ));
             }
         }
     }

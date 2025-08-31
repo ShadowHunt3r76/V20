@@ -1,9 +1,8 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using LinearProgramming.Parsing;
-using LinearProgramming.Algorithms;
-using LinearProgramming.Algorithms.BranchAndBound;
-using LinearProgramming.Algorithms.PrimalSimplex;
 
 namespace LinearProgrammingApp
 {
@@ -11,101 +10,129 @@ namespace LinearProgrammingApp
     {
         static void Main(string[] args)
         {
-            // Example: Read input file path from args
-            if (args.Length == 0)
-            {
-                Console.WriteLine("Usage: LinearProgrammingApp <inputfile>");
-                return;
-            }
+            Console.Title = "Linear Programming Solver";
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
             
             try
             {
-                string inputFile = args[0];
+                // Get input and output file paths
+                string inputFile = GetInputFile(args);
+                if (inputFile == null) return;
+
+                // Default output file is input filename with _output.txt suffix
+                string outputFile = Path.Combine(
+                    Path.GetDirectoryName(inputFile) ?? string.Empty,
+                    $"{Path.GetFileNameWithoutExtension(inputFile)}_output.txt");
+
+                // Parse the input file
                 var parser = new ParsedLinearProgrammingModel.UniversalLinearProgrammingParser();
                 var parsedModel = parser.ParseFromFile(inputFile);
-                var canonicalModel = parsedModel.ToCanonicalForm();
-
-                //Call menu
-                var solverMenu = new SolverMenu();
-                solverMenu.RunMenu(parsedModel);
-
-                // Check if the problem has integer/binary variables
-                bool hasIntegerVariables = parsedModel.Variables.Any(v => v.Type == VariableType.Integer || v.Type == VariableType.Binary);
-
-                if (hasIntegerVariables)
-                {
-                    Console.WriteLine("Integer Programming Problem Detected!");
-                    Console.WriteLine("Choose algorithm:");
-                    Console.WriteLine("1) Primal Simplex (LP Relaxation)");
-                    Console.WriteLine("2) Revised Primal Simplex (LP Relaxation)"); 
-                    Console.WriteLine("3) Branch and Bound Simplex Algorithm");
-                }
-                else
-                {
-                    Console.WriteLine("Linear Programming Problem Detected.");
-                    Console.WriteLine("Choose algorithm:");
-                    Console.WriteLine("1) Primal Simplex");
-                    Console.WriteLine("2) Revised Primal Simplex");
-                }
-
-                var key = Console.ReadKey();
-                Console.WriteLine();
-                Console.WriteLine();
-
-                if (hasIntegerVariables && key.KeyChar == '3')
-                {
-                    // Branch and Bound Algorithm
-                    var solver = new SolverMenu();
-                    solver.RunBranchAndBound(parsedModel);
-                    return;
-                }
                 
-                // Regular simplex algorithms
-                LinearProgramSolution solution = null;
+                // Display welcome message
+                Console.Clear();
+                Console.WriteLine("=== Linear Programming Solver ===");
+                Console.WriteLine($"Input file: {inputFile}");
+                Console.WriteLine($"Output will be saved to: {outputFile}");
+                Console.WriteLine($"Objective: {(parsedModel.Objective.Optimization == OptimizationType.Maximize ? "Maximize" : "Minimize")} {string.Join(" + ", parsedModel.Objective.Coefficients.Select((c, i) => $"{c}x{i+1}"))}");
+                Console.WriteLine($"Variables: {parsedModel.Variables.Count} ({GetVariableTypeSummary(parsedModel)})");
+                Console.WriteLine($"Constraints: {parsedModel.Constraints.Count}");
                 
-                if (key.KeyChar == '2')
-                {
-                    var revisedSolver = new RevisedPrimalSimplexSolver();
-                    solution = revisedSolver.Solve(canonicalModel);
-                    
-                    // Generate output file
-                    OutputFileGenerator.GenerateRevisedSimplexOutput(parsedModel, solution, "revised_simplex_main_output.txt");
-                    Console.WriteLine("\nOutput file generated: revised_simplex_main_output.txt");
-                }
-                else
-                {
-                    var primalSolver = new PrimalSimplexSolver();
-                    solution = primalSolver.Solve(canonicalModel);
-                    
-                    // Generate output file
-                    OutputFileGenerator.GeneratePrimalSimplexOutput(parsedModel, solution, "primal_simplex_main_output.txt");
-                    Console.WriteLine("\nOutput file generated: primal_simplex_main_output.txt");
-                }
-
-                // Output results to console
-                Console.WriteLine($"Status: {solution.Status}");
-                if (solution.SolutionVector != null)
-                {
-                    Console.WriteLine("Solution vector:");
-                    for (int i = 0; i < solution.SolutionVector.Length; i++)
-                        Console.WriteLine($"x{i + 1} = {solution.SolutionVector[i]:F3}");
-                }
-                Console.WriteLine($"Objective value: {solution.ObjectiveValue:F3}");
-
-                if (hasIntegerVariables)
-                {
-                    Console.WriteLine("\nNote: This is the LP relaxation solution. For integer solution, use Branch and Bound (option 3).");
-                }
+                // Start the main menu with the model and output file path
+                SolverMenu.ShowMainMenu(parsedModel, outputFile);
             }
             catch (ParsedLinearProgrammingModel.LinearProgrammingParseException ex)
             {
-                Console.WriteLine($"Input error: {ex.Message}");
+                Console.WriteLine($"\nError parsing input file: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Details: {ex.InnerException.Message}");
+                }
+                WaitForUser();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Unexpected error: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                Console.WriteLine($"\nAn unexpected error occurred: {ex.Message}");
+                Console.WriteLine($"\nStack trace: {ex.StackTrace}");
+                WaitForUser();
             }
+        }
+
+        private static string GetInputFile(string[] args)
+        {
+            string inputFile = null;
+            
+            if (args.Length > 0)
+            {
+                // Check if first argument is an existing file
+                if (File.Exists(args[0]))
+                {
+                    inputFile = Path.GetFullPath(args[0]);
+                }
+                // Check if first argument is a help flag
+                else if (args[0] == "--help" || args[0] == "-h" || args[0] == "/?")
+                {
+                    Console.WriteLine("Linear Programming Solver");
+                    Console.WriteLine("Usage: solve.exe [input_file] [output_file]");
+                    Console.WriteLine("  input_file   Path to the input file containing the LP model");
+                    Console.WriteLine("  output_file  (Optional) Path to save the output (default: <input_filename>_output.txt)");
+                    Console.WriteLine("\nIf no arguments are provided, you will be prompted for the input file.");
+                    return null;
+                }
+            }
+
+            // If no valid file was provided as argument, prompt user
+            while (string.IsNullOrEmpty(inputFile) || !File.Exists(inputFile))
+            {
+                if (!string.IsNullOrEmpty(inputFile))
+                {
+                    Console.WriteLine($"File not found: {inputFile}");
+                }
+                
+                Console.Write("\nEnter the path to the input file (or press Enter to exit): ");
+                inputFile = Console.ReadLine()?.Trim('"');
+                
+                if (string.IsNullOrEmpty(inputFile))
+                {
+                    Console.WriteLine("No input file specified. Exiting...");
+                    return null;
+                }
+                
+                if (File.Exists(inputFile))
+                {
+                    break;
+                }
+            }
+            
+            return Path.GetFullPath(inputFile).Trim('"');
+        }
+
+        private static string GetOutputFile(string[] args, string inputFile)
+        {
+            if (args.Length > 1)
+            {
+                return Path.GetFullPath(args[1]);
+            }
+            else
+            {
+                return Path.Combine(
+                    Path.GetDirectoryName(inputFile) ?? string.Empty,
+                    $"{Path.GetFileNameWithoutExtension(inputFile)}_output.txt");
+            }
+        }
+        
+        private static string GetVariableTypeSummary(ParsedLinearProgrammingModel model)
+        {
+            // Since the current VariableType enum doesn't distinguish between integer and binary variables,
+            // we'll just count the total number of variables
+            int totalVariables = model.Variables.Count;
+            
+            return $"{totalVariables} variables";
+        }
+        
+        private static void WaitForUser()
+        {
+            Console.WriteLine("\nPress any key to exit...");
+            Console.ReadKey();
         }
     }
 }

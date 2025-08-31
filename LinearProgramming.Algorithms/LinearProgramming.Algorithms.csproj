@@ -3,7 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>disable</Nullable>
+    <Nullable>enable</Nullable>
+    <LangVersion>11.0</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,5 +14,10 @@
   <ItemGroup>
     <ProjectReference Include="..\LinearProgramming.Parsing\LinearProgramming.Parsing.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="LinearProgramming.Parsing" />
+  </ItemGroup>
+
 
 </Project>

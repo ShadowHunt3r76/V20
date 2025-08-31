@@ -12,15 +12,113 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
     /// </summary>
     public class LinearProgramSolution : ILinearProgramSolution
     {
+        #region ILinearProgramSolution Implementation
+        
         /// <summary>
         /// Gets or sets the status of the solution (e.g., "Optimal", "Unbounded", "Infeasible")
         /// </summary>
-        public string Status { get; set; }
+        public string Status { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Gets or sets the optimal value of the objective function
+        /// </summary>
+        public double ObjectiveValue { get; set; }
+
+        /// <summary>
+        /// Gets or sets the values of the decision variables in the optimal solution
+        /// </summary>
+        public Dictionary<string, double> VariableValues { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the solution vector containing the values of all variables
+        /// </summary>
+        public double[] SolutionVector { get; set; } = Array.Empty<double>();
+
+        /// <summary>
+        /// Gets or sets the initial tableau
+        /// </summary>
+        public double[,] InitialTable { get; set; } = new double[0, 0];
+
+        /// <summary>
+        /// Gets or sets the optimal tableau
+        /// </summary>
+        public double[,] OptimalTable { get; set; } = new double[0, 0];
+
+        /// <summary>
+        /// Gets or sets the history of tableaus during optimization
+        /// </summary>
+        public List<double[,]> TableHistory { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the names of the basis variables in the final tableau
+        /// </summary>
+        public string[] BasisVariables { get; set; } = Array.Empty<string>();
+
+        /// <summary>
+        /// Gets or sets the indices of the basis variables in the final tableau
+        /// </summary>
+        public int[] BasisIndices { get; set; } = Array.Empty<int>();
+
+        /// <summary>
+        /// Gets or sets the canonical matrix (A) of the linear program
+        /// </summary>
+        public double[,] CanonicalMatrix { get; set; } = new double[0, 0];
+
+        /// <summary>
+        /// Gets or sets the names of all variables (including slacks and artificials)
+        /// </summary>
+        public string[] VariableNames { get; set; } = Array.Empty<string>();
+        
+        #endregion
+        
+        #region Additional Properties
+        
         /// <summary>
         /// Gets or sets the objective value of the LP relaxation (used in integer programming)
         /// </summary>
         public double? LPObjectiveValue { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the basis indices in the final solution
+        /// </summary>
+        public int[] Basis { get; set; }
+
+        /// <summary>
+        /// Gets or sets the reduced costs in the final solution
+        /// </summary>
+        public double[] ReducedCosts { get; set; } = Array.Empty<double>();
+
+        /// <summary>
+        /// Gets or sets the simplex multipliers (dual variables)
+        /// </summary>
+        public double[] SimplexMultipliers { get; set; } = Array.Empty<double>();
+
+        /// <summary>
+        /// Gets or sets the list of simplex iterations
+        /// </summary>
+        public List<ISimplexIteration> Iterations { get; set; } = new List<ISimplexIteration>();
+        
+        /// <summary>
+        /// Gets or sets the list of detailed iteration information for revised simplex
+        /// </summary>
+        public List<RevisedSimplexIteration> IterationDetails { get; set; } = new List<RevisedSimplexIteration>();
+
+        /// <summary>
+        /// Gets or sets the names of non-basis variables
+        /// </summary>
+        public string[] NonBasisVariables { get; set; } = Array.Empty<string>();
+        
+        /// <summary>
+        /// Gets the number of iterations performed
+        /// </summary>
+        public int IterationCount => Iterations?.Count ?? 0;
+        
+        /// <summary>
+        /// Gets a value indicating whether the solution is optimal
+        /// </summary>
+        public bool IsOptimal => Status == "Optimal";
+        
+        #endregion
 
         /// <summary>
         /// Returns a detailed string representation of the solution
@@ -161,35 +259,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             }
         }
 
-        /// <summary>
-        /// Gets or sets the optimal value of the objective function
-        /// </summary>
-        public double ObjectiveValue { get; set; }
-
-        /// <summary>
-        /// Gets or sets the values of the decision variables in the optimal solution
-        /// </summary>
-        public Dictionary<string, double> VariableValues { get; set; } = new Dictionary<string, double>();
-
-        /// <summary>
-        /// Gets or sets the basis indices in the final solution
-        /// </summary>
-        public int[] Basis { get; set; }
-
-        /// <summary>
-        /// Gets or sets the reduced costs in the final solution
-        /// </summary>
-        public double[] ReducedCosts { get; set; }
-
-        /// <summary>
-        /// Gets or sets the simplex multipliers (dual variables)
-        /// </summary>
-        public double[] SimplexMultipliers { get; set; }
-
-        /// <summary>
-        /// Gets or sets the list of simplex iterations
-        /// </summary>
-        public List<ISimplexIteration> Iterations { get; set; } = new List<ISimplexIteration>();
+        // Removed duplicate property definitions that were already in the ILinearProgramSolution implementation
         
         /// <summary>
         /// Displays detailed information about a single iteration
@@ -242,60 +312,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             }
         }
 
-        /// <summary>
-        /// Gets or sets the list of detailed iteration information for revised simplex
-        /// </summary>
-        public List<RevisedSimplexIteration> IterationDetails { get; set; } = new List<RevisedSimplexIteration>();
-
-        /// <summary>
-        /// Gets the number of iterations performed
-        /// </summary>
-        public int IterationCount => Iterations?.Count ?? 0;
-
-        /// <summary>
-        /// Gets or sets the solution vector containing the values of all variables
-        /// </summary>
-        public double[] SolutionVector { get; set; }
-
-        /// <summary>
-        /// Gets or sets the initial simplex tableau
-        /// </summary>
-        public double[,] InitialTable { get; set; }
-
-        /// <summary>
-        /// Gets or sets the final simplex tableau
-        /// </summary>
-        public double[,] OptimalTable { get; set; }
-
-        /// <summary>
-        /// Gets or sets the history of tableaus during the simplex algorithm
-        /// </summary>
-        public List<double[,]> TableHistory { get; set; } = new List<double[,]>();
-        
-        /// <summary>
-        /// Gets or sets the names of the basis variables in the final tableau
-        /// </summary>
-        public string[] BasisVariables { get; set; }
-        
-        /// <summary>
-        /// Gets or sets the names of all variables (including slacks and artificials)
-        /// </summary>
-        public string[] VariableNames { get; set; }
-
-        /// <summary>
-        /// Gets or sets the canonical matrix (A) of the linear program
-        /// </summary>
-        public double[,] CanonicalMatrix { get; set; }
-        
-        /// <summary>
-        /// Gets or sets the names of non-basis variables
-        /// </summary>
-        public string[] NonBasisVariables { get; set; }
-
-        /// <summary>
-        /// Gets a value indicating whether the solution is optimal
-        /// </summary>
-        public bool IsOptimal => Status == "Optimal";
+        // Removed duplicate property definitions that were already in the ILinearProgramSolution implementation
 
         /// <summary>
         /// Gets a value indicating whether the problem is unbounded

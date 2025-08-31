@@ -9,11 +9,12 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
     /// <summary>
     /// Provides sensitivity analysis for Revised Primal Simplex method solutions
     /// </summary>
-    public class RevisedSimplexSensitivityAnalysis : BaseSensitivityAnalysis
+    public class RevisedSimplexSensitivityAnalysis : BaseSensitivityAnalysis, ISensitivityAnalysis
     {
         private readonly double[,] _basisInverse;
         private readonly double[] _reducedCosts;
         private readonly double[] _simplexMultipliers;
+        private readonly double[] _currentSolution;
         private readonly double[] _objectiveCoefficients;
         private readonly double[] _rhsCoefficients;
         private readonly int[] _basisIndices;
@@ -35,6 +36,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             double[,] basisInverse,
             double[] reducedCosts,
             double[] simplexMultipliers,
+            double[] currentSolution,
             double[] objectiveCoefficients,
             double[] rhsCoefficients,
             string[] variableNames,
@@ -46,6 +48,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             _basisInverse = basisInverse ?? throw new ArgumentNullException(nameof(basisInverse));
             _reducedCosts = reducedCosts ?? throw new ArgumentNullException(nameof(reducedCosts));
             _simplexMultipliers = simplexMultipliers ?? throw new ArgumentNullException(nameof(simplexMultipliers));
+            _currentSolution = currentSolution ?? throw new ArgumentNullException(nameof(currentSolution));
             _objectiveCoefficients = objectiveCoefficients ?? throw new ArgumentNullException(nameof(objectiveCoefficients));
             _rhsCoefficients = rhsCoefficients ?? throw new ArgumentNullException(nameof(rhsCoefficients));
             _basisIndices = basisIndices ?? throw new ArgumentNullException(nameof(basisIndices));
@@ -57,10 +60,15 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 throw new ArgumentException("Number of RHS coefficients must match number of constraints");
         }
 
+        private readonly Dictionary<string, (double min, double current, double max)> _objectiveRanges = new();
+        private readonly Dictionary<string, (double min, double current, double max)> _rhsRanges = new();
+        private readonly Dictionary<string, double> _shadowPrices = new();
+        private readonly Dictionary<string, double> _reducedCostsDict = new();
+        
         /// <summary>
         /// Performs complete sensitivity analysis on the revised simplex solution
         /// </summary>
-        public void PerformAnalysis()
+        public override void PerformAnalysis()
         {
             Console.WriteLine("\n" + new string('=', 80));
             Console.WriteLine("REVISED SIMPLEX SENSITIVITY ANALYSIS");
@@ -85,10 +93,20 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
 
                 // 6. Non-basic variables analysis
                 AnalyzeNonBasicVariables();
+                
+                // 7. Generate and display visualization
+                Console.WriteLine("\n" + new string('-', 40));
+                Console.WriteLine("VISUALIZATION");
+                Console.WriteLine(new string('-', 40));
+                Console.WriteLine(GenerateVisualization());
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"\n⚠ Error during sensitivity analysis: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
             }
 
             Console.WriteLine("\n" + new string('=', 80));
@@ -134,10 +152,30 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             Console.WriteLine("\nSHADOW PRICES (DUAL VARIABLES)");
             Console.WriteLine(new string('-', 40));
             
+            // Clear previous shadow prices
+            _shadowPrices.Clear();
+
             for (int i = 0; i < _simplexMultipliers.Length; i++)
             {
-                Console.WriteLine($"Constraint {i + 1} ({_constraintTypes[i]}): {_simplexMultipliers[i]:F6}");
-                Console.WriteLine($"  Interpretation: The objective would change by {_simplexMultipliers[i]:F6} per unit increase in the RHS");
+                double shadowPrice = _simplexMultipliers[i];
+                string constraintName = $"Constraint {i + 1} ({_constraintTypes[i]})";
+                
+                Console.WriteLine($"{constraintName}: {shadowPrice:F6}");
+                Console.WriteLine($"  Interpretation: The objective would change by {shadowPrice:F6} per unit increase in the RHS");
+                
+                // Store for visualization
+                _shadowPrices[constraintName] = shadowPrice;
+            }
+            
+            // Add visualization for shadow prices
+            if (_shadowPrices.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateHistogram(
+                    "SHADOW PRICES (DUAL VARIABLES)",
+                    _shadowPrices,
+                    height: 10,
+                    width: 50
+                ));
             }
         }
 
@@ -145,24 +183,36 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         {
             Console.WriteLine("\nREDUCED COSTS");
             Console.WriteLine(new string('-', 40));
+            
+            // Clear previous reduced costs
+            _reducedCostsDict.Clear();
+            var nonZeroReducedCosts = new Dictionary<string, double>();
 
-            for (int i = 0; i < _reducedCosts.Length; i++)
+            for (int j = 0; j < _originalVarCount; j++)
             {
-                if (i < _variableNames.Length) // Only show original variables
+                if (!_basisIndices.Contains(j)) // Only for non-basic variables
                 {
-                    string varName = _variableNames[i];
-                    double reducedCost = _reducedCosts[i];
+                    double reducedCost = _reducedCosts[j];
+                    _reducedCostsDict[_variableNames[j]] = reducedCost;
                     
-                    Console.WriteLine($"{varName}: {reducedCost:F6}");
                     if (Math.Abs(reducedCost) > Epsilon)
                     {
-                        Console.WriteLine($"  Interpretation: The objective would change by {reducedCost:F6} per unit increase in {varName}'s value");
-                    }
-                    else
-                    {
-                        Console.WriteLine("  This variable is in the optimal basis");
+                        Console.WriteLine($"{_variableNames[j]}: {reducedCost:F6}");
+                        Console.WriteLine($"  Interpretation: The objective would change by {reducedCost:F6} if this variable enters the basis");
+                        nonZeroReducedCosts[_variableNames[j]] = reducedCost;
                     }
                 }
+            }
+            
+            // Add visualization for non-zero reduced costs
+            if (nonZeroReducedCosts.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateHistogram(
+                    "NON-ZERO REDUCED COSTS",
+                    nonZeroReducedCosts,
+                    height: 10,
+                    width: 50
+                ));
             }
         }
 
@@ -173,72 +223,60 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
 
             int numConstraints = _constraintTypes.Length;
             
-            // Check condition number of basis inverse for numerical stability
-            double conditionNumber = NumericalStabilityUtils.ConditionNumber(_basisInverse);
-            if (conditionNumber > 1e10)
-            {
-                Console.WriteLine("⚠ Warning: The basis matrix is ill-conditioned (condition number: {0:E2}). " +
-                               "Sensitivity results may be unreliable.", conditionNumber);
-            }
+            // Clear previous RHS ranges
+            _rhsRanges.Clear();
             
             for (int i = 0; i < numConstraints; i++)
             {
                 double currentRHS = _rhsCoefficients[i];
                 double shadowPrice = _simplexMultipliers[i];
+                string constraintName = $"Constraint {i + 1} ({_constraintTypes[i]})";
                 
-                // Calculate allowable increase and decrease
+                Console.WriteLine($"{constraintName}:");
+                Console.WriteLine($"  Current RHS: {currentRHS:F6}");
+                Console.WriteLine($"  Shadow price: {shadowPrice:F6}");
+                
+                // Calculate allowable increase/decrease for this RHS
                 double maxIncrease = double.PositiveInfinity;
                 double maxDecrease = double.PositiveInfinity;
-                bool hasValidRatios = false;
                 
-                // For each basic variable, check the ratio with the basis inverse
-                for (int j = 0; j < _basisInverse.GetLength(0); j++)
+                for (int j = 0; j < numConstraints; j++)
                 {
-                    double invElement = _basisInverse[j, i];
-                    if (!invElement.IsZero(Epsilon))
+                    double a_ij = _basisInverse[j, i];
+                    double b_i = _currentSolution[j];
+                    
+                    if (a_ij > Epsilon)
                     {
-                        double ratio = NumericalStabilityUtils.SafeDivide(_currentSolution[j], invElement, Epsilon);
-                        if (invElement > Epsilon)
-                        {
-                            maxDecrease = Math.Min(maxDecrease, ratio);
-                            hasValidRatios = true;
-                        }
-                        else if (invElement < -Epsilon)
-                        {
-                            maxIncrease = Math.Min(maxIncrease, -ratio);
-                            hasValidRatios = true;
-                        }
+                        double ratio = b_i / a_ij;
+                        maxDecrease = Math.Min(maxDecrease, ratio);
+                    }
+                    else if (a_ij < -Epsilon)
+                    {
+                        double ratio = b_i / a_ij;
+                        maxIncrease = Math.Min(maxIncrease, -ratio);
                     }
                 }
                 
-                if (!hasValidRatios)
-                {
-                    Console.WriteLine($"Constraint {i + 1}: Could not determine valid RHS ranges - numerical instability detected");
-                    continue;
-                }
+                Console.WriteLine($"  Allowable increase: {(double.IsInfinity(maxIncrease) ? "∞" : maxIncrease.ToString("F6"))}");
+                Console.WriteLine($"  Allowable decrease: {(double.IsInfinity(maxDecrease) ? "∞" : maxDecrease.ToString("F6"))}");
+                Console.WriteLine($"  Range: [{currentRHS - maxDecrease:F6}, {currentRHS + maxIncrease:F6}]");
                 
-                Console.WriteLine($"Constraint {i + 1} ({_constraintTypes[i]}):");
-                Console.WriteLine($"  Current RHS: {currentRHS:F6}");
-                Console.WriteLine($"  Shadow Price: {shadowPrice:F6}");
-                
-                if (double.IsInfinity(maxDecrease) && double.IsInfinity(maxIncrease))
-                {
-                    Console.WriteLine("  Range: (-∞, +∞)");
-                }
-                else
-                {
-                    double lowerBound = double.IsInfinity(maxDecrease) ? 
-                        double.NegativeInfinity : currentRHS - maxDecrease;
-                    double upperBound = double.IsInfinity(maxIncrease) ? 
-                        double.PositiveInfinity : currentRHS + maxIncrease;
-                        
-                    Console.WriteLine($"  Range: [{(double.IsNegativeInfinity(lowerBound) ? "-∞" : lowerBound.ToString("F6"))}, " +
-                                    $"{(double.IsPositiveInfinity(upperBound) ? "+∞" : upperBound.ToString("F6"))}]");
-                }
-                
-                Console.WriteLine($"  Current Basis Remains Optimal For: " +
-                                $"RHS in [{currentRHS - (double.IsInfinity(maxDecrease) ? currentRHS * 0.1 : maxDecrease):F6}, " +
-                                $"{currentRHS + (double.IsInfinity(maxIncrease) ? currentRHS * 0.1 : maxIncrease):F6}]");
+                // Store for visualization
+                _rhsRanges[constraintName] = (
+                    min: currentRHS - maxDecrease,
+                    current: currentRHS,
+                    max: currentRHS + maxIncrease
+                );
+            }
+            
+            // Add visualization for RHS ranges
+            if (_rhsRanges.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateBarChart(
+                    "RIGHT-HAND SIDE RANGES",
+                    _rhsRanges,
+                    width: 50
+                ));
             }
         }
 
@@ -246,61 +284,76 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         {
             Console.WriteLine("\nOBJECTIVE COEFFICIENT RANGES");
             Console.WriteLine(new string('-', 40));
-
-            // For non-basic variables
-            for (int j = 0; j < _reducedCosts.Length; j++)
-            {
-                if (j >= _variableNames.Length) continue; // Skip slack/surplus variables
-                
-                if (!_basisIndices.Contains(j))
-                {
-                    double reducedCost = _reducedCosts[j];
-                    double currentCoef = _objectiveCoefficients[j];
-                    double lowerBound = currentCoef - reducedCost;
-                    
-                    Console.WriteLine($"{_variableNames[j]} (non-basic):");
-                    Console.WriteLine($"  Current Coefficient: {currentCoef:F6}");
-                    Console.WriteLine($"  Reduced Cost: {reducedCost:F6}");
-                    Console.WriteLine($"  Range: [{lowerBound:F6}, +∞)");
-                    Console.WriteLine($"  Interpretation: {_variableNames[j]} will not enter the basis unless its coefficient increases by at least {reducedCost:F6}");
-                }
-            }
             
-            // For basic variables
-            Console.WriteLine("\nBasic Variables:");
-            for (int i = 0; i < _basisIndices.Length; i++)
+            // Clear previous objective ranges
+            _objectiveRanges.Clear();
+
+            for (int j = 0; j < _originalVarCount; j++)
             {
-                int varIndex = _basisIndices[i];
-                if (varIndex < _variableNames.Length) // Only original variables
+                string varName = _variableNames[j];
+                double currentCoefficient = _objectiveCoefficients[j];
+                
+                if (_basisIndices.Contains(j))
                 {
-                    double currentCoef = _objectiveCoefficients[varIndex];
-                    double lowerBound = double.NegativeInfinity;
-                    double upperBound = double.PositiveInfinity;
+                    // Basic variable - calculate allowable increase/decrease
+                    double maxIncrease = double.PositiveInfinity;
+                    double maxDecrease = double.PositiveInfinity;
                     
-                    // Calculate ranges using the basis inverse
-                    for (int j = 0; j < _reducedCosts.Length; j++)
+                    for (int k = 0; k < _originalVarCount; k++)
                     {
-                        if (j >= _variableNames.Length) continue; // Skip slack/surplus variables
-                        
-                        if (!_basisIndices.Contains(j))
+                        if (k != j && !_basisIndices.Contains(k))
                         {
-                            double ratio = _reducedCosts[j] / _basisInverse[i, j];
-                            if (_basisInverse[i, j] > 0)
+                            double ratio = -_reducedCosts[k] / _basisInverse[Array.IndexOf(_basisIndices, j), k];
+                            if (ratio > 0)
                             {
-                                upperBound = Math.Min(upperBound, ratio);
+                                maxIncrease = Math.Min(maxIncrease, ratio);
                             }
                             else
                             {
-                                lowerBound = Math.Max(lowerBound, ratio);
+                                maxDecrease = Math.Min(maxDecrease, -ratio);
                             }
                         }
                     }
                     
-                    Console.WriteLine($"{_variableNames[varIndex]} (basic):");
-                    Console.WriteLine($"  Current Coefficient: {currentCoef:F6}");
-                    Console.WriteLine($"  Range: [{(double.IsNegativeInfinity(lowerBound) ? "-∞" : (currentCoef + lowerBound).ToString("F6"))}, " +
-                                    $"{(double.IsPositiveInfinity(upperBound) ? "+∞" : (currentCoef + upperBound).ToString("F6"))}]");
+                    Console.WriteLine($"{varName} (basic):");
+                    Console.WriteLine($"  Current coefficient: {currentCoefficient:F6}");
+                    Console.WriteLine($"  Allowable increase: {(double.IsInfinity(maxIncrease) ? "∞" : maxIncrease.ToString("F6"))}");
+                    Console.WriteLine($"  Allowable decrease: {(double.IsInfinity(maxDecrease) ? "∞" : maxDecrease.ToString("F6"))}");
+                    Console.WriteLine($"  Range: [{currentCoefficient - maxDecrease:F6}, {currentCoefficient + maxIncrease:F6}]");
+                    
+                    // Store for visualization
+                    _objectiveRanges[varName] = (
+                        min: currentCoefficient - maxDecrease,
+                        current: currentCoefficient,
+                        max: currentCoefficient + maxIncrease
+                    );
                 }
+                else
+                {
+                    // Non-basic variable - range is from -∞ to current + reduced cost
+                    double upperBound = currentCoefficient + _reducedCosts[j];
+                    Console.WriteLine($"{varName} (non-basic):");
+                    Console.WriteLine($"  Current coefficient: {currentCoefficient:F6}");
+                    Console.WriteLine($"  Reduced cost: {_reducedCosts[j]:F6}");
+                    Console.WriteLine($"  Range: (-∞, {upperBound:F6}]");
+                    
+                    // Store for visualization
+                    _objectiveRanges[varName] = (
+                        min: double.NegativeInfinity,
+                        current: currentCoefficient,
+                        max: upperBound
+                    );
+                }
+            }
+            
+            // Add visualization for objective coefficient ranges
+            if (_objectiveRanges.Count > 0)
+            {
+                Console.WriteLine("\n" + SensitivityVisualizer.CreateBarChart(
+                    "OBJECTIVE COEFFICIENT RANGES",
+                    _objectiveRanges,
+                    width: 50
+                ));
             }
         }
 

@@ -5,6 +5,7 @@ using System.Text;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms.PrimalSimplex;
 using LinearProgramming.Algorithms.Utils;
+using LinearProgramming.Algorithms.Exceptions;
 using static LinearProgramming.Parsing.ParsedLinearProgrammingModel;
 
 // Use the outer CanonicalLinearProgrammingModel from LinearProgramming.Parsing
@@ -25,23 +26,26 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         private bool _useProductForm = true;
         private List<RevisedSimplexIteration> _iterations = new List<RevisedSimplexIteration>();
         private int _iterationCount = 0;
-        private string[] _variableNames;
+        private string[]? _variableNames;
         private int _originalVarCount;
         private int _slackCount;
         private int _artificialCount;
         private int _totalVars;
-        private double[,] _basisInverse;
-        private double[] _simplexMultipliers;
-        private double[] _reducedCosts;
-        private double[] _currentSolution;
-        private List<int> _basisIndices;
-        private List<int> _nonBasisIndices;
-        private double[][] _workingA;
-        private double[] _workingB;
-        private double[] _workingC;
+        private double[,] _basisInverse = new double[0, 0];
+        private double[] _simplexMultipliers = Array.Empty<double>();
+        private double[] _reducedCosts = Array.Empty<double>();
+        private double[] _currentSolution = Array.Empty<double>();
+        private List<int> _basisIndices = new List<int>();
+        private List<int> _nonBasisIndices = new List<int>();
+        private double[][] _workingA = Array.Empty<double[]>();
+        private double[] _workingB = Array.Empty<double>();
+        private double[] _workingC = Array.Empty<double>();
         private double _currentObjective;
         private int _constraintCount;
         private bool _useBlandsRule = false; // Toggle between Dantzig's and Bland's rule
+        private double[] _objectiveCoefficients = Array.Empty<double>();
+        private double[] _rhsCoefficients = Array.Empty<double>();
+        private ConstraintType[] _constraintTypes = Array.Empty<ConstraintType>();
         
         #region Matrix Operations (Delegated to MatrixUtils)
         
@@ -95,9 +99,9 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                     reducedCosts,
                     simplexMultipliers,
                     currentSolution,
-                    variableNames,
                     objectiveCoefficients,
                     rhsCoefficients,
+                    variableNames,
                     constraintTypes,
                     basisIndices,
                     originalVarCount
@@ -275,8 +279,11 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             _slackCount = _constraintCount;
             _artificialCount = 0;
             
+            // Store constraint types from the model
+            _constraintTypes = model.ConstraintTypes.ToArray();
+            
             // Count artificial variables needed for >= and = constraints
-            foreach (var constraintType in model.ConstraintTypes)
+            foreach (var constraintType in _constraintTypes)
             {
                 if (constraintType == ConstraintType.GreaterThanOrEqual || 
                     constraintType == ConstraintType.Equal)
@@ -728,9 +735,9 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             {
                 Iteration = _iterationCount,
                 Type = _useProductForm ? "ProductForm" : "PriceOut",
-                BasicSolution = (double[])_currentSolution.Clone(),
-                SimplexMultipliers = (double[])_simplexMultipliers?.Clone(),
-                ReducedCosts = (double[])_reducedCosts?.Clone(),
+                BasicSolution = _currentSolution != null ? (double[])_currentSolution.Clone() : Array.Empty<double>(),
+                SimplexMultipliers = _simplexMultipliers != null ? (double[])_simplexMultipliers.Clone() : Array.Empty<double>(),
+                ReducedCosts = _reducedCosts != null ? (double[])_reducedCosts.Clone() : Array.Empty<double>(),
                 ObjectiveValue = _currentObjective,
                 Status = "In Progress"
             };
@@ -745,7 +752,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
 
         #region Phase I and II Methods
         
-        private (bool IsFeasible, List<int> BasisIndices, List<int> NonBasisIndices, double[,] BasisInverse, double[] Solution, double ObjectiveValue) 
+        private (bool IsFeasible, List<int>? BasisIndices, List<int>? NonBasisIndices, double[,]? BasisInverse, double[]? Solution, double ObjectiveValue) 
             RunPhaseI(CanonicalLinearProgrammingModel model)
         {
             _iterationCount = 0;
@@ -782,7 +789,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                     {
                         iteration.Status = "Infeasible (artificial variables in basis)";
                         _iterations.Add(iteration);
-                        return (false, null, null, null, null, 0);
+                        return (IsFeasible: false, BasisIndices: null, NonBasisIndices: null, BasisInverse: null, Solution: null, ObjectiveValue: 0);
                     }
                     
                     iteration.Status = "Phase I Complete";
@@ -797,7 +804,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 {
                     iteration.Status = "Unbounded in Phase I";
                     _iterations.Add(iteration);
-                    return (false, null, null, null, null, 0);
+                    return (IsFeasible: false, BasisIndices: null, NonBasisIndices: null, BasisInverse: null, Solution: null, ObjectiveValue: 0);
                 }
                 
                 // Update iteration with pivot information
@@ -817,7 +824,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             return (true, _basisIndices, _nonBasisIndices, _basisInverse, _currentSolution, _currentObjective);
         }
         
-        private (bool IsOptimal, double ObjectiveValue) RunPhaseII(CanonicalLinearProgrammingModel model)
+        private (bool IsOptimal, double? ObjectiveValue) RunPhaseII(CanonicalLinearProgrammingModel model)
         {
             _iterationCount = 0;
             bool isOptimal = false;
@@ -848,7 +855,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 {
                     iteration.Status = "Unbounded";
                     _iterations.Add(iteration);
-                    return (false, double.PositiveInfinity);
+                    return (IsOptimal: false, ObjectiveValue: null);
                 }
                 
                 // Update iteration with pivot information
@@ -987,9 +994,10 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 if (phaseIneeded)
                 {
                     currentSolution.Status = "Running Phase I";
-                    var phaseIResult = RunPhaseI(model);
+                    // Run Phase I and deconstruct the result
+                    var (isFeasible, basisIndices, nonBasisIndices, basisInverse, phase1Solution, objectiveValue) = RunPhaseI(model);
                     
-                    if (!phaseIResult.IsFeasible)
+                    if (!isFeasible)
                     {
                         currentSolution.Status = "Infeasible";
                         currentSolution.IterationDetails = _iterations;
@@ -997,11 +1005,11 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                     }
                     
                     // Update basis and solution for Phase II
-                    _basisIndices = phaseIResult.BasisIndices;
-                    _nonBasisIndices = phaseIResult.NonBasisIndices;
-                    _basisInverse = phaseIResult.BasisInverse;
-                    _currentSolution = phaseIResult.Solution;
-                    _currentObjective = phaseIResult.ObjectiveValue;
+                    _basisIndices = basisIndices ?? throw new InvalidOperationException("Phase I result is missing basis indices");
+                    _nonBasisIndices = nonBasisIndices ?? throw new InvalidOperationException("Phase I result is missing non-basis indices");
+                    _basisInverse = basisInverse ?? throw new InvalidOperationException("Phase I result is missing basis inverse");
+                    _currentSolution = solution?.SolutionVector ?? throw new InvalidOperationException("Phase I result is missing solution");
+                    _currentObjective = objectiveValue;
                     
                     // Remove artificial variables from basis if possible
                     RemoveArtificialVariables();
@@ -1013,12 +1021,12 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 
                 // Phase II: Optimize with original objective
                 currentSolution.Status = "Running Phase II";
-                var phaseIIResult = RunPhaseII(model);
+                var (isOptimal, phaseIIObjective) = RunPhaseII(model);
                 
                 // Prepare final solution
                 currentSolution.ObjectiveValue = _currentObjective;
                 currentSolution.IterationDetails = _iterations;
-                currentSolution.Status = phaseIIResult.IsOptimal ? "Optimal" : "Unbounded or Infeasible";
+                currentSolution.Status = isOptimal ? "Optimal" : "Unbounded or Infeasible";
                 
                 // Extract solution values
                 currentSolution.SolutionVector = new double[_originalVarCount];
@@ -1031,9 +1039,9 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 }
                 
                 // Store basis and reduced costs
-                currentSolution.Basis = _basisIndices.ToArray();
-                currentSolution.ReducedCosts = _reducedCosts;
-                currentSolution.SimplexMultipliers = _simplexMultipliers;
+                currentSolution.Basis = _basisIndices?.ToArray() ?? Array.Empty<int>();
+                currentSolution.ReducedCosts = _reducedCosts ?? Array.Empty<double>();
+                currentSolution.SimplexMultipliers = _simplexMultipliers ?? Array.Empty<double>();
                 
                 return currentSolution;
             }
@@ -1164,7 +1172,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         /// <summary>
         /// Solves Phase I to find initial feasible solution
         /// </summary>
-        private (string Status, List<int> Basis, double[] BasicSolution) 
+        private (string Status, List<int> Basis, double[]? BasicSolution) 
             SolvePhaseI(double[][] A, double[] b, List<int> basis, int m)
         {
             // Create Phase I objective: minimize sum of artificial variables
@@ -1183,7 +1191,8 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             // Solve Phase I problem
             var result = SolveSimplex(A, b, phaseIObjective, basis, m, true);
             
-            if (result.Status == "Optimal" && Math.Abs(result.ObjectiveValue) < EPSILON)
+            if (result.Status == "Optimal" && result.BasicSolution != null && 
+                Math.Abs(result.ObjectiveValue) < NumericalStabilityUtils.Epsilon)
             {
                 return ("Optimal", result.Basis, result.BasicSolution);
             }
@@ -1206,7 +1215,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 ObjectiveValue = result.ObjectiveValue
             };
             
-            if (result.Status == "Optimal")
+            if (result.Status == "Optimal" && result.BasicSolution != null)
             {
                 solution.SolutionVector = ConstructFullSolution(result.Basis, result.BasicSolution, n);
             }
@@ -1217,9 +1226,12 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         /// <summary>
         /// Core simplex algorithm implementation
         /// </summary>
-        private (string Status, List<int> Basis, double[] BasicSolution, double ObjectiveValue)
+        private (string Status, List<int> Basis, double[]? BasicSolution, double ObjectiveValue)
             SolveSimplex(double[][] A, double[] b, double[] c, List<int> basis, int m, bool isPhaseI)
         {
+            if (A == null || b == null || c == null || basis == null)
+                return ("Error: Null input parameters", new List<int>(), null, 0.0);
+                
             int n = A[0].Length;
             int maxIter = 1000;
             int iter = 0;
@@ -1228,7 +1240,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             {
                 // Extract basis matrix B and compute inverse
                 double[,] B = ExtractBasisMatrix(A, basis, m);
-                double[,] BInverse = InvertMatrix(B);
+                double[,]? BInverse = InvertMatrix(B);
                 
                 if (BInverse == null)
                 {
@@ -1271,6 +1283,27 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 // Step 3: Compute reduced costs for non-basic variables
                 int entering = -1;
                 double mostNegative = isPhaseI ? EPSILON : 0; // Different tolerance for Phase I
+                
+                // Find entering variable (most negative reduced cost)
+                for (int j = 0; j < n; j++)
+                {
+                    if (!basis.Contains(j))
+                    {
+                        double[] Aj = ExtractColumn(A, j, m);
+                        double reducedCost = c[j] - DotProduct(pi, Aj);
+                        
+                        if (reducedCost < mostNegative)
+                        {
+                            mostNegative = reducedCost;
+                            entering = j;
+                        }
+                    }
+                }
+                
+                // If no entering variable found, we're at optimality
+                if (entering == -1)
+                {
+                    double objectiveValue = DotProduct(cB, xB);
                     return ("Optimal", basis, xB, objectiveValue);
                 }
                 
@@ -1306,14 +1339,16 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 iter++;
             }
             
-            return ("Max iterations reached", basis, null, 0.0);
+            return ("MaxIterationsReached", basis, null, 0.0);
         }
         
         /// <summary>
         /// Attempts to repair a singular basis by finding alternative basic variables
         /// </summary>
-        private List<int> TryRepairBasis(double[][] A, List<int> currentBasis, int m, int n)
+        private List<int>? TryRepairBasis(double[][] A, List<int> currentBasis, int m, int n)
         {
+            if (A == null || currentBasis == null) return null;
+            
             // Try replacing each basis variable with non-basic variables
             for (int i = 0; i < currentBasis.Count; i++)
             {
@@ -1325,7 +1360,8 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                         testBasis[i] = j;
                         
                         var B = ExtractBasisMatrix(A, testBasis, m);
-                        if (InvertMatrix(B) != null)
+                        var BInverse = InvertMatrix(B);
+                        if (BInverse != null)
                         {
                             return testBasis;
                         }
@@ -1370,8 +1406,10 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         /// Matrix inversion using Gauss-Jordan elimination
         /// Returns null if matrix is singular
         /// </summary>
-        private double[,] InvertMatrix(double[,] matrix)
+        private double[,]? InvertMatrix(double[,] matrix)
         {
+            if (matrix == null) return null;
+            
             int n = matrix.GetLength(0);
             double[,] augmented = new double[n, 2 * n];
             
@@ -1385,10 +1423,10 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 }
             }
             
-            // Gauss-Jordan elimination
+            // Perform Gauss-Jordan elimination
             for (int i = 0; i < n; i++)
             {
-                // Find pivot
+                // Find pivot row
                 int pivotRow = i;
                 for (int k = i + 1; k < n; k++)
                 {
@@ -1397,7 +1435,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 }
                 
                 // Check for singular matrix
-                if (Math.Abs(augmented[pivotRow, i]) < EPSILON)
+                if (Math.Abs(augmented[pivotRow, i]) < MatrixUtils.Epsilon)
                     return null;
                 
                 // Swap rows if necessary
@@ -1494,6 +1532,9 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         /// </summary>
         private double[] ConstructFullSolution(List<int> basis, double[] xB, int n)
         {
+            if (xB == null)
+                throw new ArgumentNullException(nameof(xB), "Basic solution vector cannot be null");
+                
             double[] x = new double[n];
             
             // Initialize all variables to 0 (non-basic variables)
@@ -1503,7 +1544,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             // Set basic variables (only for original variables, not artificial)
             for (int i = 0; i < basis.Count; i++)
             {
-                if (basis[i] < n) // Only original variables
+                if (basis[i] < n && i < xB.Length) // Only original variables within bounds
                 {
                     x[basis[i]] = xB[i];
                 }
@@ -1595,32 +1636,6 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             
             string result = string.Join("", terms);
             return result.TrimStart(' ', '+');
-        }
-        
-        private string FormatConstraint(double[] coefficients, ConstraintType type, double rhs)
-        {
-            var terms = new List<string>();
-            for (int i = 0; i < coefficients.Length; i++)
-            {
-                if (Math.Abs(coefficients[i]) > EPSILON)
-                {
-                    string sign = coefficients[i] >= 0 ? " + " : " - ";
-                    string coef = Math.Abs(coefficients[i]) == 1 ? "" : $"{Math.Abs(coefficients[i])}";
-                    terms.Add($"{sign}{coef}x{i + 1}");
-                }
-            }
-            
-            string constraint = string.Join("", terms).TrimStart(' ', '+');
-            
-            string operatorStr = type switch
-            {
-                ConstraintType.LessThanOrEqual => "≤",
-                ConstraintType.GreaterThanOrEqual => "≥",
-                ConstraintType.Equal => "=",
-                _ => "?"
-            };
-            
-            return $"{constraint} {operatorStr} {rhs}";
         }
         
         #endregion

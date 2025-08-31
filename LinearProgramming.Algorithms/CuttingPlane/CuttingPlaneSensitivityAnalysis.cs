@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LinearProgramming.Algorithms.SensitivityAnalysis;
 using LinearProgramming.Algorithms.Utils;
+using SA = LinearProgramming.Algorithms.SensitivityAnalysis.SensitivityAnalysisImpl;
 using static LinearProgramming.Algorithms.Utils.NumericalStabilityUtils;
 
 namespace LinearProgramming.Algorithms.CuttingPlane
@@ -10,12 +11,19 @@ namespace LinearProgramming.Algorithms.CuttingPlane
     /// <summary>
     /// Provides sensitivity analysis for Cutting Plane algorithm solutions
     /// </summary>
-    public class CuttingPlaneSensitivityAnalysis : BaseSensitivityAnalysis
+    public class CuttingPlaneSensitivityAnalysis : BaseSensitivityAnalysis, ISensitivityAnalysis
     {
         private readonly LinearProgramSolution _lpRelaxationSolution;
         private readonly LinearProgramSolution _finalSolution;
         private readonly CanonicalLinearProgrammingModel _originalModel;
         private readonly List<double[,]> _cuttingPlaneHistory;
+        
+        // Visualization data storage
+        private Dictionary<string, (double min, double current, double max)> _objectiveRanges = new();
+        private Dictionary<string, (double min, double current, double max)> _rhsRanges = new();
+        private Dictionary<string, double> _shadowPrices = new();
+        private Dictionary<string, double> _reducedCosts = new();
+        private SA _lpSensitivity;
 
         /// <summary>
         /// Initializes a new instance of the CuttingPlaneSensitivityAnalysis class
@@ -44,7 +52,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
         /// <summary>
         /// Performs complete sensitivity analysis on the Cutting Plane solution
         /// </summary>
-        public void PerformAnalysis()
+        public override void PerformAnalysis()
         {
             if (_finalSolution.Status != "Optimal")
             {
@@ -83,6 +91,15 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     Console.WriteLine("CUTTING PLANE ANALYSIS");
                     Console.WriteLine(new string('-', 40));
                     AnalyzeCuttingPlanes();
+                }
+                
+                // 5. Generate and display visualization
+                if (_lpSensitivity != null)
+                {
+                    Console.WriteLine("\n" + new string('-', 40));
+                    Console.WriteLine("VISUALIZATION");
+                    Console.WriteLine(new string('-', 40));
+                    Console.WriteLine(GenerateVisualization());
                 }
             }
             catch (Exception ex)
@@ -130,13 +147,22 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     return;
                 }
 
-                var sensitivity = new SensitivityAnalysis(
+                // Create variables array from variable names
+                var variables = _originalModel.VariableNames.Select(name => new Variable { Name = name }).ToArray();
+                
+                _lpSensitivity = new SA(
                     _lpRelaxationSolution.OptimalTable,
                     _lpRelaxationSolution.BasisIndices,
-                    _originalModel.VariableNames,
+                    variables,
                     _originalModel.ConstraintTypes,
                     _originalModel.ObjectiveCoefficients.Length,
                     _originalModel.ConstraintTypes.Length);
+
+                // Clear previous data
+                _objectiveRanges.Clear();
+                _rhsRanges.Clear();
+                _shadowPrices.Clear();
+                _reducedCosts.Clear();
 
                 // Analyze objective coefficient ranges
                 Console.WriteLine("\nOBJECTIVE COEFFICIENT RANGES (LP RELAXATION):");
@@ -144,8 +170,29 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 {
                     try
                     {
-                        var range = sensitivity.GetObjectiveCoefficientRange(i);
-                        Console.WriteLine($"{_originalModel.VariableNames[i]}: [{range.LowerBound:F6}, {range.UpperBound:F6}]");
+                        (double lowerBound, double upperBound) range;
+                        bool isBasic = _lpRelaxationSolution.BasisIndices.Contains(i);
+                        
+                        if (isBasic)
+                        {
+                            range = _lpSensitivity.GetBasicVariableRange(i);
+                        }
+                        else
+                        {
+                            range = _lpSensitivity.GetNonBasicVariableRange(i);
+                            // Store reduced cost for non-basic variables
+                            double reducedCost = _lpSensitivity.GetReducedCost(i);
+                            _reducedCosts[_originalModel.VariableNames[i]] = reducedCost;
+                        }
+                        
+                        // Store for visualization
+                        _objectiveRanges[_originalModel.VariableNames[i]] = (
+                            min: range.lowerBound,
+                            current: _originalModel.ObjectiveCoefficients[i],
+                            max: range.upperBound
+                        );
+                        
+                        Console.WriteLine($"{_originalModel.VariableNames[i]}: [{range.lowerBound:F6}, {range.upperBound:F6}] (Current: {_originalModel.ObjectiveCoefficients[i]:F6})");
                     }
                     catch (Exception ex)
                     {
@@ -153,19 +200,86 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     }
                 }
 
-                // Analyze RHS ranges
+                // Add visualization for objective coefficient ranges
+                if (_objectiveRanges.Count > 0)
+                {
+                    Console.WriteLine("\n" + SensitivityVisualizer.CreateBarChart(
+                        "OBJECTIVE COEFFICIENT RANGES",
+                        _objectiveRanges,
+                        width: 50
+                    ));
+                }
+                
+                // Visualize non-zero reduced costs
+                var nonZeroReducedCosts = _reducedCosts
+                    .Where(kvp => Math.Abs(kvp.Value) > Epsilon)
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                    
+                if (nonZeroReducedCosts.Count > 0)
+                {
+                    Console.WriteLine("\n" + SensitivityVisualizer.CreateHistogram(
+                        "NON-ZERO REDUCED COSTS",
+                        nonZeroReducedCosts,
+                        height: 10,
+                        width: 50
+                    ));
+                }
+
+                // Analyze RHS ranges and shadow prices
                 Console.WriteLine("\nRIGHT-HAND SIDE RANGES (LP RELAXATION):");
                 for (int i = 0; i < _originalModel.ConstraintTypes.Length; i++)
                 {
                     try
                     {
-                        var range = sensitivity.GetRHSRange(i);
-                        Console.WriteLine($"Constraint {i + 1}: [{range.LowerBound:F6}, {range.UpperBound:F6}]");
+                        var range = _lpSensitivity.GetRHSRange(i);
+                        double currentRHS = _originalModel.RightHandSide[i];
+                        string constraintName = $"Constraint {i + 1} ({_originalModel.ConstraintTypes[i]})";
+                        
+                        // Store for visualization
+                        _rhsRanges[constraintName] = (
+                            min: range.lowerBound,
+                            current: currentRHS,
+                            max: range.upperBound
+                        );
+                        
+                        // Get and store shadow price
+                        try
+                        {
+                            double shadowPrice = _lpSensitivity.GetShadowPrice(i);
+                            _shadowPrices[constraintName] = shadowPrice;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"  Error getting shadow price: {ex.Message}");
+                        }
+                        
+                        Console.WriteLine($"{constraintName}: [{range.lowerBound:F6}, {range.upperBound:F6}] (Current: {currentRHS:F6})");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error analyzing constraint {i + 1}: {ex.Message}");
+                        Console.WriteLine($"Error analyzing RHS for constraint {i + 1}: {ex.Message}");
                     }
+                }
+                
+                // Add visualization for RHS ranges
+                if (_rhsRanges.Count > 0)
+                {
+                    Console.WriteLine("\n" + SensitivityVisualizer.CreateBarChart(
+                        "RIGHT-HAND SIDE RANGES",
+                        _rhsRanges,
+                        width: 50
+                    ));
+                }
+                
+                // Add visualization for shadow prices
+                if (_shadowPrices.Count > 0)
+                {
+                    Console.WriteLine("\n" + SensitivityVisualizer.CreateHistogram(
+                        "SHADOW PRICES (DUAL VARIABLES)",
+                        _shadowPrices,
+                        height: 10,
+                        width: 50
+                    ));
                 }
             }
             catch (Exception ex)
@@ -181,7 +295,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             Console.WriteLine("\nINTEGER VARIABLE SENSITIVITY:");
             for (int i = 0; i < _originalModel.VariableNames.Length; i++)
             {
-                if (_originalModel.VariableTypes[i] != VariableType.Continuous)
+                if (_originalModel.VariableTypes[i] == VariableType.Integer || _originalModel.VariableTypes[i] == VariableType.Binary)
                 {
                     double value = _finalSolution.SolutionVector[i];
                     double floor = Math.Floor(value);
@@ -231,5 +345,75 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 Console.WriteLine($"  ... and {_cuttingPlaneHistory.Count - maxCutsToShow} more cuts");
             }
         }
+
+        #region ISensitivityAnalysis Implementation
+        
+        public override (double lowerBound, double upperBound) GetRHSRange(int constraintIndex)
+        {
+            if (_lpSensitivity == null)
+                throw new InvalidOperationException("LP sensitivity analysis not available");
+                
+            if (constraintIndex < 0 || constraintIndex >= _constraintTypes.Length)
+                throw new ArgumentOutOfRangeException(nameof(constraintIndex), "Constraint index out of range");
+                
+            return _lpSensitivity.GetRHSRange(constraintIndex);
+        }
+        
+        public override (double lowerBound, double upperBound) GetObjectiveCoefficientRange(int variableIndex)
+        {
+            if (_lpSensitivity == null)
+                throw new InvalidOperationException("LP sensitivity analysis not available");
+                
+            if (variableIndex < 0 || variableIndex >= _variableNames.Length)
+                throw new ArgumentOutOfRangeException(nameof(variableIndex), "Variable index out of range");
+                
+            if (_lpRelaxationSolution?.BasisIndices?.Contains(variableIndex) == true)
+            {
+                return _lpSensitivity.GetBasicVariableRange(variableIndex);
+            }
+            else
+            {
+                return _lpSensitivity.GetNonBasicVariableRange(variableIndex);
+            }
+        }
+        
+        public override double GetReducedCost(int variableIndex)
+        {
+            if (_lpSensitivity == null)
+                throw new InvalidOperationException("LP sensitivity analysis not available");
+                
+            if (variableIndex < 0 || variableIndex >= _variableNames.Length)
+                throw new ArgumentOutOfRangeException(nameof(variableIndex), "Variable index out of range");
+                
+            return _lpSensitivity.GetReducedCost(variableIndex);
+        }
+        
+        public override double GetShadowPrice(int constraintIndex)
+        {
+            if (_lpSensitivity == null)
+                throw new InvalidOperationException("LP sensitivity analysis not available");
+                
+            if (constraintIndex < 0 || constraintIndex >= _constraintTypes.Length)
+                throw new ArgumentOutOfRangeException(nameof(constraintIndex), "Constraint index out of range");
+                
+            return _lpSensitivity.GetShadowPrice(constraintIndex);
+        }
+        
+        public override Dictionary<string, double> GetSolutionValues()
+        {
+            var solution = new Dictionary<string, double>();
+            
+            if (_finalSolution?.SolutionVector == null || _originalModel?.VariableNames == null)
+                return solution;
+                
+            for (int i = 0; i < Math.Min(_finalSolution.SolutionVector.Length, _originalModel.VariableNames.Length); i++)
+            {
+                solution[_originalModel.VariableNames[i]] = _finalSolution.SolutionVector[i];
+            }
+            
+            return solution;
+        }
+        
+        #endregion
     }
 }

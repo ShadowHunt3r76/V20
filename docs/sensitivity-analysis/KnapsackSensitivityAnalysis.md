@@ -4,6 +4,18 @@
 `KnapsackSensitivityAnalysis` provides specialized sensitivity analysis for solutions obtained from the 0-1 Knapsack problem. It helps understand how changes in item values, weights, and knapsack capacity affect the optimal solution.
 
 ## Key Features
+
+- **Item Value Sensitivity**: Analyzes how much item values can change without affecting the optimal solution
+- **Weight Sensitivity**: Determines how changes in item weights impact the solution
+- **Capacity Sensitivity**: Shows how the solution changes with different knapsack capacities
+- **Critical Items**: Identifies items that are on the "borderline" of being included/excluded
+- **Visualization**: Provides text-based visualizations of sensitivity analysis results
+- **Reduced Costs**: Provides reduced costs for items not in the optimal solution
+
+## Overview
+`KnapsackSensitivityAnalysis` provides specialized sensitivity analysis for solutions obtained from the 0-1 Knapsack problem. It helps understand how changes in item values, weights, and knapsack capacity affect the optimal solution.
+
+## Key Features
 - **Item Value Sensitivity**: Analyzes how much item values can change without affecting the optimal solution
 - **Weight Sensitivity**: Determines how changes in item weights impact the solution
 - **Capacity Sensitivity**: Shows how the solution changes with different knapsack capacities
@@ -13,6 +25,7 @@
 ## Usage
 
 ### Initialization
+
 ```csharp
 var analysis = new KnapsackSensitivityAnalysis(
     knapsackSolution,  // KnapsackSolution - The solution to analyze
@@ -20,7 +33,10 @@ var analysis = new KnapsackSensitivityAnalysis(
 );
 ```
 
+
+
 ### Performing Analysis
+
 ```csharp
 // Perform complete sensitivity analysis and print results
 analysis.PerformAnalysis();
@@ -33,18 +49,23 @@ var reducedCosts = analysis.GetReducedCosts();
 bool isOptimal = analysis.IsOptimal();
 ```
 
+```
+
 ## Example
 
 ### Problem Setup
 Consider the following 0-1 Knapsack problem:
-```
+```text
 Maximize Z = 10x1 + 20x2 + 15x3
 Subject to:
   5x1 + 10x2 + 7x3 ≤ 12  (knapsack capacity)
   x1, x2, x3 ∈ {0, 1}
 ```
 
+
+
 ### Performing Sensitivity Analysis
+
 ```csharp
 // After solving the problem, we have:
 var solution = new KnapsackSolution
@@ -67,8 +88,11 @@ var analysis = new KnapsackSensitivityAnalysis(solution, model);
 analysis.PerformAnalysis();
 ```
 
-### Sample Output
-```
+
+
+### Sample Output with Visualizations
+
+```text
 ==========================================================
 KNAPSACK SENSITIVITY ANALYSIS
 ==========================================================
@@ -99,6 +123,26 @@ DUAL VALUES
 Constraint  Dual Value  Status
 Capacity     1.25        Binding
 
+VISUALIZATION
+----------------------------------------
+
+Objective Coefficient Ranges (per item):
+Item 1: [5.00 ───────────●────────── 15.00]  Current: 10.00
+Item 2: [15.00 ──────────○───────── 20.00]  Current: 20.00
+Item 3: [10.00 ──────────●────────── 20.00]  Current: 15.00
+
+Shadow Price (Value per Unit of Capacity):
+┌───────────┬──────────────────────────────────────┐
+│ Constraint│ ██████████████████████████████████ 1.25 │
+└───────────┴──────────────────────────────────────┘
+
+Reduced Costs (Potential Value if Item is Added/Removed):
+┌─────────┬──────────────────────────────────────────┐
+│ Item 1  │ █████████████████████████████████ -5.00 │
+│ Item 2  │ █████████████████████████████████  5.00 │
+│ Item 3  │ █████████████████████████████████ -5.00 │
+└─────────┴──────────────────────────────────────────┘
+
 REDUCED COSTS
 ----------------------------------------
 Item  Reduced Cost  Interpretation
@@ -108,16 +152,57 @@ x2      5.00        Value must increase by 5.00 for x2 to be included
 x3     -5.00        Value can decrease by 5.00 before x3 is excluded
 ```
 
+## Visualization Examples
+
+### Objective Coefficient Ranges
+
+```text
+Item 1: [5.00 ───────────●────────── 15.00]  Current: 10.00
+Item 2: [15.00 ──────────○───────── 20.00]  Current: 20.00
+Item 3: [10.00 ──────────●────────── 20.00]  Current: 15.00
+```
+
+- `●` indicates the item is included in the optimal solution
+- `○` indicates the item is not included in the optimal solution
+- The range shows how much each item's value can change before the optimal solution changes
+
+### Shadow Price
+
+```text
+┌───────────┬──────────────────────────────────────┐
+│ Constraint│ ██████████████████████████████████ 1.25 │
+└───────────┴──────────────────────────────────────┘
+```
+
+- Shows the value of increasing the knapsack capacity by one unit
+- The bar length represents the magnitude relative to other constraints
+
+### Reduced Costs
+
+```text
+┌─────────┬──────────────────────────────────────────┐
+│ Item 1  │ █████████████████████████████████ -5.00 │
+│ Item 2  │ █████████████████████████████████  5.00 │
+│ Item 3  │ █████████████████████████████████ -5.00 │
+└─────────┴──────────────────────────────────────────┘
+```
+
+- Negative values (red) show how much an included item's value can decrease before being excluded
+- Positive values (green) show how much an excluded item's value must increase to be included
+
 ## Interpretation of Results
 
 ### Item Sensitivity
-- **x1 (Included)**: 
+- **x1 (Included)**:
+
   - Value can decrease to 5.00 or increase to 15.00 without changing the solution
   - Weight can increase to 12.00 or decrease to 4.00 without changing the solution
 - **x2 (Excluded)**:
+
   - Value needs to increase to 25.00 to be included
   - Weight needs to decrease to 7.00 to be included
 - **x3 (Included)**:
+
   - Value can decrease to 10.00 or increase to 20.00 without changing the solution
   - Weight can increase to 12.00 or decrease to 5.00 without changing the solution
 

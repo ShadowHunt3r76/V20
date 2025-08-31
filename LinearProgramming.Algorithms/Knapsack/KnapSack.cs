@@ -33,6 +33,12 @@ namespace LinearProgramming.Algorithms.Knapsack
         private int n;
         private KnapsackNode bestNode;
         private List<string> iterationLog;
+        private const double Epsilon = 1e-10;
+
+        private static bool AreEqual(double a, double b, double epsilon = 1e-10)
+        {
+            return Math.Abs(a - b) < epsilon;
+        }
 
         /// <summary>
         /// Validates the knapsack problem inputs and checks for trivially infeasible cases
@@ -159,7 +165,7 @@ namespace LinearProgramming.Algorithms.Knapsack
         {
             try
             {
-                if (node.Weight.CompareTo(capacity, Epsilon) >= 0)
+                if (node.Weight > capacity + Epsilon)
                 {
                     LogNode(node, "Fathomed (knapsack full)");
                     return 0;
@@ -170,7 +176,7 @@ namespace LinearProgramming.Algorithms.Knapsack
                 double totalWeight = node.Weight;
 
                 // Greedily add items until we can't fit more
-                while (j < n && (totalWeight + weights[j]).CompareTo(capacity, Epsilon) <= 0)
+                while (j < n && (totalWeight + weights[j] <= capacity + Epsilon))
                 {
                     totalWeight = (totalWeight + weights[j]).RoundToEpsilon(Epsilon);
                     bound = (bound + values[j]).RoundToEpsilon(Epsilon);
@@ -384,9 +390,9 @@ namespace LinearProgramming.Algorithms.Knapsack
                 Console.WriteLine(new string('=', 80));
 
                 var sensitivity = new KnapsackSensitivityAnalysis(
-                    _weights, 
-                    _values, 
-                    _capacity, 
+                    weights, 
+                    values, 
+                    capacity, 
                     solution, 
                     optimalValue);
                     
@@ -434,42 +440,42 @@ namespace LinearProgramming.Algorithms.Knapsack
                 Console.WriteLine(OutputFormatter.CreateHeader("BEST SOLUTION FOUND"));
                 Console.WriteLine(OutputFormatter.FormatKeyValue("Status", "Optimal"));
                 Console.WriteLine(OutputFormatter.FormatKeyValue("Total Value", bestNode.Value));
-                Console.WriteLine(OutputFormatter.FormatKeyValue("Total Weight", $"{bestNode.Weight} / {_capacity}"));
+                Console.WriteLine(OutputFormatter.FormatKeyValue("Total Weight", $"{bestNode.Weight} / {capacity}"));
                 
                 // Calculate and display capacity utilization
-                double utilization = (bestNode.Weight / _capacity) * 100;
+                double utilization = (bestNode.Weight / capacity) * 100;
                 Console.WriteLine(OutputFormatter.FormatKeyValue("Capacity Used", $"{utilization:F2}%"));
                 
                 // Display included items with details
                 Console.WriteLine("\nINCLUDED ITEMS:");
-                Console.WriteLine($"{'Item',-6} {'Value',-10} {'Weight',-10} 'Value/Weight'");
+                Console.WriteLine(string.Format("{0,-6} {1,-10} {2,-10} {3}", "Item", "Value", "Weight", "Value/Weight"));
                 Console.WriteLine(new string('-', 45));
                 
                 for (int i = 0; i < n; i++)
                 {
                     if (bestNode.Included[i])
                     {
-                        double vwRatio = _values[i] / _weights[i];
-                        Console.WriteLine($"{i + 1,-6} {_values[i],-10:F2} {_weights[i],-10:F2} {vwRatio,-10:F4}");
+                        double vwRatio = values[i] / weights[i];
+                        Console.WriteLine($"{i + 1,-6} {values[i],-10:F2} {weights[i],-10:F2} {vwRatio,-10:F4}");
                     }
                 }
                 
                 // Display excluded items for reference
                 var excludedItems = Enumerable.Range(0, n)
                     .Where(i => !bestNode.Included[i])
-                    .OrderByDescending(i => _values[i] / _weights[i])
+.OrderByDescending(i => values[i] / weights[i])
                     .ToList();
                     
                 if (excludedItems.Any())
                 {
                     Console.WriteLine("\nEXCLUDED ITEMS (by value/weight ratio):");
-                    Console.WriteLine($"{'Item',-6} {'Value',-10} {'Weight',-10} 'Value/Weight'");
+                    Console.WriteLine(string.Format("{0,-6} {1,-10} {2,-10} {3}", "Item", "Value", "Weight", "Value/Weight"));
                     Console.WriteLine(new string('-', 45));
                     
                     foreach (var i in excludedItems.Take(10)) // Show top 10 excluded items
                     {
-                        double vwRatio = _values[i] / _weights[i];
-                        Console.WriteLine($"{i + 1,-6} {_values[i],-10:F2} {_weights[i],-10:F2} {vwRatio,-10:F4}");
+                        double vwRatio = values[i] / weights[i];
+                        Console.WriteLine($"{i + 1,-6} {values[i],-10:F2} {weights[i],-10:F2} {vwRatio,-10:F4}");
                     }
                     
                     if (excludedItems.Count > 10)

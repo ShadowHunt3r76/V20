@@ -3,15 +3,82 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using LinearProgramming.Parsing;
+using static LinearProgramming.Algorithms.PrimalSimplex.MatrixUtils;
 using LinearProgramming.Algorithms.PrimalSimplex;
+using LinearProgramming.Algorithms;
 using LinearProgramming.Algorithms.Utils;
+using static LinearProgramming.Algorithms.Utils.OutputFormatter;
 using static LinearProgramming.Algorithms.Utils.NumericalStabilityUtils;
 using LinearProgramming.Algorithms.SensitivityAnalysis;
+using SensitivityAnalysis = LinearProgramming.Algorithms.SensitivityAnalysis.SensitivityAnalysisImpl;
 
 namespace LinearProgramming.Algorithms.CuttingPlane
 {
     public class CuttingPlane
     {
+        public const double EPSILON = 1e-10;
+        private static readonly string[] InequalitySymbols = new[] { "<=", ">=", "=" };
+        
+        private void DisplayCanonicalForm(LinearProgramming.Parsing.CanonicalLinearProgrammingModel model)
+        {
+            _output.AppendLine("\nCANONICAL FORM:");
+            _output.AppendLine("Objective: " + (model.OptimizationType == OptimizationType.Maximize ? "Maximize" : "Minimize") + " z = " + 
+                           string.Join(" + ", model.ObjectiveCoefficients.Select((c, i) => $"{c:F2}x{i + 1}")));
+            
+            _output.AppendLine("\nSubject to:");
+            for (int i = 0; i < model.CoefficientMatrix.Length; i++)
+            {
+                _output.AppendLine(FormatConstraint(model.CoefficientMatrix[i], model.RightHandSide[i], model.ConstraintTypes[i]));
+            }
+            
+            _output.AppendLine("\nVariable Bounds:");
+            for (int i = 0; i < model.ObjectiveCoefficients.Length; i++)
+            {
+                _output.AppendLine($"x{i + 1} >= 0");
+            }
+        }
+        
+        private string FormatConstraint(double[] constraint, double rhs, ConstraintType type)
+        {
+            if (constraint == null) return string.Empty;
+            
+            var sb = new StringBuilder();
+            bool first = true;
+            
+            for (int i = 0; i < constraint.Length; i++)
+            {
+                double coef = constraint[i];
+                if (Math.Abs(coef) < EPSILON) continue;
+                
+                if (!first && coef > 0)
+                    sb.Append(" + ");
+                else if (coef < 0)
+                    sb.Append(" - ");
+                
+                if (Math.Abs(Math.Abs(coef) - 1) > EPSILON || i == constraint.Length - 1)
+                    sb.Append($"{Math.Abs(coef):F2}");
+                
+                sb.Append($"x{i + 1}");
+                first = false;
+            }
+            
+            if (first)
+                sb.Append("0");
+                
+            sb.Append($" {GetInequalitySymbol(type)} {rhs:F2}");
+            return sb.ToString();
+        }
+        
+        private string GetInequalitySymbol(ConstraintType type)
+        {
+            return type switch
+            {
+                ConstraintType.LessThanOrEqual => "<=",
+                ConstraintType.GreaterThanOrEqual => ">=",
+                ConstraintType.Equal => "=",
+                _ => "?"
+            };
+        }
         private int _numOriginalConstraints;
         private readonly StringBuilder _output = new StringBuilder();
         private int _iterationCount = 0;
@@ -20,7 +87,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
         /// <summary>
         /// Checks if the model has any trivially infeasible constraints
         /// </summary>
-        private string CheckModelInfeasibility(CanonicalLinearProgrammingModel model)
+        private string CheckModelInfeasibility(LinearProgramming.Parsing.CanonicalLinearProgrammingModel model)
         {
             var analysis = new StringBuilder();
             
@@ -52,7 +119,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     (model.ConstraintTypes[i] == ConstraintType.Equal && allZero && Math.Abs(model.RHSVector[i]) > EPSILON))
                 {
                     analysis.AppendLine($"- Constraint {i + 1} is trivially infeasible");
-                    analysis.AppendLine(FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RHSVector[i], model.VariableNames));
+                    analysis.AppendLine(FormatConstraint(model.CoefficientMatrix[i].ToArray(), model.RHSVector[i], model.ConstraintTypes[i]));
                 }
             }
 
@@ -66,8 +133,8 @@ namespace LinearProgramming.Algorithms.CuttingPlane
         /// <param name="finalSolution">Final integer solution</param>
         /// <param name="model">Original model</param>
         public void PerformSensitivityAnalysis(
-            LinearProgramSolution lpRelaxationSolution,
-            LinearProgramSolution finalSolution,
+            LinearProgramming.Parsing.LinearProgramSolution lpRelaxationSolution,
+            LinearProgramming.Parsing.LinearProgramSolution finalSolution,
             CanonicalLinearProgrammingModel model)
         {
             try
@@ -86,7 +153,21 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             }
         }
 
-        public LinearProgramSolution CuttingPlaneSolve(LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel model)
+        private ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel ConvertToInnerModel(LinearProgramming.Parsing.CanonicalLinearProgrammingModel model)
+        {
+            return new ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel
+            {
+                CoefficientMatrix = model.CoefficientMatrix,
+                RHSVector = model.RHSVector,
+                ObjectiveCoefficients = model.ObjectiveCoefficients,
+                VariableTypes = model.VariableTypes,
+                ConstraintTypes = model.ConstraintTypes,
+                VariableNames = model.VariableNames,
+                OptimizationType = model.OptimizationType
+            };
+        }
+
+        public LinearProgramming.Parsing.LinearProgramSolution CuttingPlaneSolve(LinearProgramming.Parsing.CanonicalLinearProgrammingModel model)
         {
             _output.Clear();
             _iterationCount = 0;
@@ -100,7 +181,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 _output.AppendLine("The problem is infeasible due to the following constraints:");
                 _output.AppendLine(infeasibilityAnalysis);
                 
-                return new LinearProgramSolution
+                return new LinearProgramming.Parsing.LinearProgramSolution
                 {
                     Status = "Infeasible",
                     SolutionVector = null,
@@ -115,19 +196,20 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             // Solve LP relaxation using primal simplex
             _output.AppendLine(OutputFormatter.CreateHeader("SOLVING LP RELAXATION"));
             var simplex = new PrimalSimplexSolver();
-            var solution = simplex.Solve(model);
+            var innerModel = ConvertToInnerModel(model);
+            var solution = simplex.Solve(innerModel);
             
             // Check for infeasibility or unboundedness in LP relaxation
             if (solution.Status == "Infeasible")
             {
                 _output.AppendLine("\n✗ LP relaxation is infeasible. The integer problem is also infeasible.");
-                return solution;
+                return ConvertToParsingSolution(solution);
             }
             else if (solution.Status == "Unbounded")
             {
                 _output.AppendLine("\n⚠ LP relaxation is unbounded. The integer problem may be unbounded or infeasible.");
                 _output.AppendLine("  Try adding bounds on variables or additional constraints.");
-                return solution;
+                return ConvertToParsingSolution(solution);
             }
             
             double[,] tableau = solution.OptimalTable;
@@ -183,7 +265,17 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 
                 // Check for near-integer solution
                 var currentSolution = ExtractSolution(tableau, numOriginalVars);
-                if (IsNearlyIntegerFeasible(currentSolution, model.Variables, out int fracVar, out double fracValue))
+                
+                // Create Variable array from model properties
+                var variables = model.ObjectiveCoefficients
+                    .Select((coeff, index) => new Variable 
+                    { 
+                        Name = $"x{index + 1}",
+                        Coefficient = coeff
+                    })
+                    .ToArray();
+                    
+                if (IsNearlyIntegerFeasible(currentSolution, variables, out int fracVar, out double fracValue))
                 {
                     _output.AppendLine($"⚠ Near-integer solution detected in x{fracVar + 1} (fractional part: {fracValue:F6})");
                     _output.AppendLine("  Consider adjusting the tolerance levels or using a different algorithm.");
@@ -205,18 +297,18 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 tableau = ApplyCuttingP(tableau, cutRow);
                 CuttingPlaneHistory.Add((double[,])tableau.Clone());
                 
-                _output.WriteLine("Tableau after adding cut:");
-                _output.WriteLine(FormatTableau(tableau));
+                _output.AppendLine("Tableau after adding cut:");
+                _output.AppendLine(FormatTableau(tableau));
 
                 //Restore feasibility with Dual Simplex
-                _output.WriteLine("\nRestoring feasibility with Dual Simplex...");
+                _output.AppendLine("\nRestoring feasibility with Dual Simplex...");
                 bool feasible = false;
                 int dualIter = 0;
                 int maxDualIter = 200;
                 
                 while (!feasible && dualIter < maxDualIter)
                 {
-                    _output.WriteLine($"\nDual Simplex Iteration {dualIter + 1}:");
+                    _output.AppendLine($"\nDual Simplex Iteration {dualIter + 1}:");
                     
                     // Check for cycling or stalling
                     if (dualIter > maxDualIter / 2)
@@ -224,8 +316,8 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                         double currentObj = tableau[0, tableau.GetLength(1) - 1];
                         if (dualIter % 10 == 0)
                         {
-                            _output.WriteLine($"⚠ Slow progress detected after {dualIter} iterations");
-                            _output.WriteLine($"  Current objective: {currentObj:F6}");
+                            _output.AppendLine($"⚠ Slow progress detected after {dualIter} iterations");
+                            _output.AppendLine($"  Current objective: {currentObj:F6}");
                         }
                     }
                     
@@ -234,16 +326,17 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     
                     if (!feasible)
                     {
-                        _output.WriteLine("Tableau after pivot:");
-                        _output.WriteLine(FormatTableau(tableau));
-                        DisplayPriceOutVector(tableau);
+                        _output.AppendLine("Tableau after pivot:");
+                        _output.AppendLine(FormatTableau(tableau));
+                        _output.AppendLine("Price out vector: " + 
+                            string.Join(", ", GetPriceOutVector(tableau)));
                         
                         // Check for cycling (same tableau seen before)
                         if (CuttingPlaneHistory.Count > 2 && 
                             IsTableauEqual(tableau, CuttingPlaneHistory[CuttingPlaneHistory.Count - 2]))
                         {
-                            _output.WriteLine("⚠ Possible cycling detected - same tableau encountered twice");
-                            _output.WriteLine("  Consider using a different pivot selection rule or perturbation.");
+                            _output.AppendLine("⚠ Possible cycling detected - same tableau encountered twice");
+                            _output.AppendLine("  Consider using a different pivot selection rule or perturbation.");
                             break;
                         }
                     }
@@ -254,18 +347,18 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     // Emergency break if we're not making progress
                     if (dualIter >= maxDualIter)
                     {
-                        _output.WriteLine("⚠ Maximum dual simplex iterations reached. The problem may be ill-conditioned.");
+                        _output.AppendLine("⚠ Maximum dual simplex iterations reached. The problem may be ill-conditioned.");
                         break;
                     }
                 }
                 
                 if (dualIter >= 200)
                 {
-                    _output.WriteLine("Warning: Dual simplex iteration limit reached.");
+                    _output.AppendLine("Warning: Dual simplex iteration limit reached.");
                 }
                 else
                 {
-                    _output.WriteLine("Feasibility restored.");
+                    _output.AppendLine("Feasibility restored.");
                 }
 
                 iter++;
@@ -277,12 +370,12 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             if (integerSolutionFound)
             {
                 _output.AppendLine("✓ Integer optimal solution found!");
-                var finalSolution = ExtractSolution(tableau, numOriginalVars);
+                var solutionVector = ExtractSolution(tableau, numOriginalVars);
                 _output.AppendLine($"Objective Value: {tableau[0, tableau.GetLength(1) - 1]:F6}");
                 _output.AppendLine("Solution Vector:");
-                for (int i = 0; i < finalSolution.Length; i++)
+                for (int i = 0; i < solutionVector.Length; i++)
                 {
-                    _output.AppendLine(OutputFormatter.FormatKeyValue($"x{i + 1}", finalSolution[i]));
+                    _output.AppendLine(OutputFormatter.FormatKeyValue($"x{i + 1}", solutionVector[i]));
                 }
             }
             else
@@ -301,7 +394,19 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 try
                 {
                     _output.AppendLine("\n" + OutputFormatter.CreateHeader("PERFORMING SENSITIVITY ANALYSIS"));
-                    PerformSensitivityAnalysis(tableau, model.Variables, model.ConstraintTypes, 
+                    
+                    // Create Variable array from objective coefficients
+                    var variables = model.ObjectiveCoefficients
+                        .Select((coeff, index) => new Variable 
+                        { 
+                            Name = $"x{index + 1}", 
+                            Coefficient = coeff,
+                            LowerBound = 0,  // Assuming non-negative variables
+                            UpperBound = double.PositiveInfinity
+                        })
+                        .ToArray();
+                    
+                    PerformSensitivityAnalysis(tableau, variables, model.ConstraintTypes, 
                                             numOriginalVars, _numOriginalConstraints);
                 }
                 catch (Exception ex)
@@ -311,33 +416,126 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                 }
             }
 
-            return new LinearProgramSolution
+            var finalSolution = new LinearProgramming.Parsing.LinearProgramSolution
             {
                 Status = integerSolutionFound ? "Optimal Integer Solution (Cutting Plane)" : "Max iterations reached",
                 SolutionVector = ExtractSolution(tableau, numOriginalVars),
                 ObjectiveValue = tableau[0, tableau.GetLength(1) - 1],
+                VariableValues = new Dictionary<string, double>(),
                 OptimalTable = tableau,
                 TableHistory = CuttingPlaneHistory
             };
+            
+            return finalSolution;
         }
 
         /// <summary>
         /// Checks if two tableaus are numerically equal within tolerance
         /// </summary>
-        private bool IsTableauEqual(double[,] t1, double[,] t2)
+        private void DisplayBasisAndInverse(double[,] tableau)
         {
-            if (t1.GetLength(0) != t2.GetLength(0) || t1.GetLength(1) != t2.GetLength(1))
-                return false;
-                
-            for (int i = 0; i < t1.GetLength(0); i++)
+            try
             {
-                for (int j = 0; j < t1.GetLength(1); j++)
+                int m = tableau.GetLength(0) - 1; // Number of constraints
+                int n = tableau.GetLength(1) - 1; // Number of variables including RHS
+                
+                _output.AppendLine("\nCurrent Basis:");
+                
+                // Find basic variables (columns that are part of the identity matrix)
+                var basis = new List<int>();
+                for (int col = 0; col < n; col++)
                 {
-                    if (Math.Abs(t1[i,j] - t2[i,j]) > 1e-6)
+                    int ones = 0;
+                    int oneRow = -1;
+                    bool isBasic = true;
+                    
+                    for (int row = 1; row <= m; row++)
+                    {
+                        if (Math.Abs(tableau[row, col] - 1) < EPSILON)
+                        {
+                            ones++;
+                            oneRow = row;
+                        }
+                        else if (Math.Abs(tableau[row, col]) > EPSILON)
+                        {
+                            isBasic = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isBasic && ones == 1)
+                    {
+                        basis.Add(col);
+                        _output.AppendLine($"  x{col + 1} = {tableau[oneRow, n]:F4}");
+                    }
+                }
+                
+                _output.AppendLine("Basis Indices: [" + string.Join(", ", basis.Select(i => $"x{i + 1}")) + "]");
+            }
+            catch (Exception ex)
+            {
+                _output.AppendLine($"\n⚠ Error displaying basis information: {ex.Message}");
+            }
+        }
+        
+        private bool IsTableauEqual(double[,] tableau1, double[,] tableau2)
+        {
+            if (tableau1.GetLength(0) != tableau2.GetLength(0) || 
+                tableau1.GetLength(1) != tableau2.GetLength(1))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < tableau1.GetLength(0); i++)
+            {
+                for (int j = 0; j < tableau1.GetLength(1); j++)
+                {
+                    if (Math.Abs(tableau1[i, j] - tableau2[i, j]) > EPSILON)
+                    {
                         return false;
+                    }
                 }
             }
             return true;
+        }
+        
+        /// <summary>
+        /// Gets the price out vector (reduced costs) from the tableau
+        /// </summary>
+        /// <param name="tableau">The simplex tableau</param>
+        /// <returns>An array of reduced costs for each non-basic variable</returns>
+        private double[] GetPriceOutVector(double[,] tableau)
+        {
+            int numVars = tableau.GetLength(1) - 1; // Exclude RHS column
+            double[] priceOutVector = new double[numVars];
+            
+            // The price out vector is the top row of the tableau (objective row)
+            // excluding the RHS value
+            for (int j = 0; j < numVars; j++)
+            {
+                priceOutVector[j] = tableau[0, j];
+            }
+            
+            return priceOutVector;
+        }
+
+        /// <summary>
+        /// Converts a PrimalSimplex.LinearProgramSolution to a Parsing.LinearProgramSolution
+        /// </summary>
+        private LinearProgramming.Parsing.LinearProgramSolution ConvertToParsingSolution(LinearProgramming.Algorithms.PrimalSimplex.LinearProgramSolution solution)
+        {
+            if (solution == null)
+                return null;
+
+            return new LinearProgramming.Parsing.LinearProgramSolution
+            {
+                Status = solution.Status,
+                ObjectiveValue = solution.ObjectiveValue,
+                SolutionVector = solution.SolutionVector,
+                VariableValues = solution.VariableValues ?? new Dictionary<string, double>(),
+                OptimalTable = solution.OptimalTable,
+                TableHistory = solution.TableHistory
+            };
         }
         
         /// <summary>
@@ -351,12 +549,12 @@ namespace LinearProgramming.Algorithms.CuttingPlane
 
             for (int i = 0; i < variables.Length; i++)
             {
-                if (variables[i].Type == VariableType.Integer || variables[i].Type == VariableType.Binary)
+                if (variables[i].IsInteger)
                 {
                     double value = solution[i];
                     
                     // Handle very small values that might be numerical noise
-                    if (Math.Abs(value) < Epsilon)
+                    if (Math.Abs(value) < EPSILON)
                     {
                         value = 0.0;
                     }
@@ -365,7 +563,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     double frac = Math.Abs(value - intPart);
                     
                     // Use relative tolerance for numbers with large magnitude
-                    double tolerance = Epsilon * (1 + Math.Abs(value));
+                    double tolerance = EPSILON * (1 + Math.Abs(value));
                     
                     if (frac > tolerance && frac > maxFraction)
                     {
@@ -377,7 +575,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             }
 
             // Consider it integer feasible if the maximum fraction is within tolerance
-            return maxFraction < Epsilon * 10; 
+            return maxFraction < EPSILON * 10; 
         }
 
         /// <summary>
@@ -393,8 +591,8 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             int[] basis = FindBasis(finalTableau, numVariables);
             
             // Create sensitivity analysis instance
-            var sensitivity = new SensitivityAnalysis(finalTableau, basis, variables, 
-                                                    constraintTypes, numVariables, numConstraints);
+            var sensitivity = new LinearProgramming.Algorithms.SensitivityAnalysis.SensitivityAnalysisImpl(
+                finalTableau, basis, variables, constraintTypes, numVariables, numConstraints);
             
             _output.AppendLine("\n=== SENSITIVITY ANALYSIS ===");
             
@@ -447,21 +645,21 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             }
             
             // 4. Display shadow prices
-            _output.WriteLine("\nShadow Prices (Dual Values):");
+            _output.AppendLine("\nShadow Prices (Dual Values):");
             for (int i = 0; i < numConstraints; i++)
             {
                 try
                 {
                     double shadowPrice = sensitivity.GetShadowPrice(i);
-                    _output.WriteLine($"Constraint {i+1}: {shadowPrice:F4}");
+                    _output.AppendLine($"Constraint {i+1}: {shadowPrice:F4}");
                 }
                 catch (Exception ex)
                 {
-                    _output.WriteLine($"Error getting shadow price for constraint {i+1}: {ex.Message}");
+                    _output.AppendLine($"Error getting shadow price for constraint {i+1}: {ex.Message}");
                 }
             }
             
-            _output.WriteLine("\n=== END OF SENSITIVITY ANALYSIS ===");
+            _output.AppendLine("\n=== END OF SENSITIVITY ANALYSIS ===");
         }
         
         /// <summary>
@@ -538,7 +736,7 @@ namespace LinearProgramming.Algorithms.CuttingPlane
                     // Check for numerical instability in basic variables
                     if (double.IsInfinity(solution[j]) || double.IsNaN(solution[j]))
                     {
-                        _output.WriteLine($"⚠ Warning: Basic variable x{j+1} has invalid value: {solution[j]}");
+                        _output.AppendLine($"⚠ Warning: Basic variable x{j+1} has invalid value: {solution[j]}");
                     }
                 }
                 else
@@ -782,8 +980,6 @@ namespace LinearProgramming.Algorithms.CuttingPlane
             return newTable;
         }
 
-        // Store history of cutting plane iterations
-        private List<double[,]> CuttingPlaneHistory = new List<double[,]>();
 
         private void PrintAnswersToTxt(string filePath = "cuttingplane_output.txt")
         {

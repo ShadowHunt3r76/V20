@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace LinearProgramming.Algorithms.PrimalSimplex
 {
@@ -252,6 +253,42 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             }
             
             return result;
+        }
+        /// <summary>
+        /// Formats a tableau for display
+        /// </summary>
+        public static string FormatTableau(double[,] tableau)
+        {
+            if (tableau == null) return "[null tableau]";
+            
+            var sb = new StringBuilder();
+            int rows = tableau.GetLength(0);
+            int cols = tableau.GetLength(1);
+            
+            // Determine column widths
+            var colWidths = new int[cols];
+            for (int j = 0; j < cols; j++)
+            {
+                int maxLen = 0;
+                for (int i = 0; i < rows; i++)
+                {
+                    string s = string.Format("{0,10:0.#####}", tableau[i, j]);
+                    maxLen = Math.Max(maxLen, s.Length);
+                }
+                colWidths[j] = maxLen + 1;
+            }
+            
+            // Print the tableau
+            for (int i = 0; i < rows; i++)
+            {
+                for (int j = 0; j < cols; j++)
+                {
+                    sb.Append($"{tableau[i, j],10:0.#####} ");
+                }
+                sb.AppendLine();
+            }
+            
+            return sb.ToString();
         }
     }
 }

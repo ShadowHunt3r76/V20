@@ -10,33 +10,6 @@ namespace LinearProgramming.Parsing
     /// <summary>
     /// Specifies the optimization direction for the objective function.
     /// </summary>
-    public enum OptimizationType
-    {
-        Maximize,
-        Minimize
-    }
-
-    /// <summary>
-    /// Specifies the relationship type for constraints.
-    /// </summary>
-    public enum ConstraintType
-    {
-        LessThanOrEqual,
-        GreaterThanOrEqual,
-        Equal
-    }
-
-    /// <summary>
-    /// Specifies the type and bounds for variables.
-    /// </summary>
-    public enum VariableType
-    {
-        NonNegative, // +
-        NonPositive, // -
-        Unrestricted, // urs
-        Integer,      // int
-        Binary        // bin
-    }
 
     /// <summary>
     /// Represents a parsed constraint with coefficients, type, and RHS value.
@@ -224,16 +197,37 @@ namespace LinearProgramming.Parsing
             /// Gets or sets the types of variables in the model
             /// </summary>
             public VariableType[] VariableTypes { get; set; }
-
+            
             /// <summary>
-            /// Gets or sets the constraint types (≤, ≥, or =)
+            /// Gets or sets the constraint types
             /// </summary>
             public ConstraintType[] ConstraintTypes { get; set; }
-
+            
             /// <summary>
-            /// Gets or sets the names of the variables
+            /// Gets or sets the variable names
             /// </summary>
             public string[] VariableNames { get; set; }
+            
+            /// <summary>
+            /// Converts this nested CanonicalLinearProgrammingModel to the top-level one
+            /// </summary>
+            public LinearProgramming.Parsing.CanonicalLinearProgrammingModel ToTopLevelModel()
+            {
+                return new LinearProgramming.Parsing.CanonicalLinearProgrammingModel
+                {
+                    CoefficientMatrix = this.CoefficientMatrix,
+                    RHSVector = this.RHSVector,
+                    ObjectiveCoefficients = this.ObjectiveCoefficients,
+                    VariableTypes = this.VariableTypes,
+                    ConstraintTypes = this.ConstraintTypes,
+                    VariableNames = this.VariableNames
+                };
+            }
+
+            /// <summary>
+            /// Gets or sets optimization direction (Minimize/Maximize)
+            /// </summary>
+            public OptimizationType OptimizationType { get; set; } = OptimizationType.Maximize;
         }
 
         /// <summary>

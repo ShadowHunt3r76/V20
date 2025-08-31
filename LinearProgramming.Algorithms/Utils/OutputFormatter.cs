@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using LinearProgramming.Parsing;
 
 namespace LinearProgramming.Algorithms.Utils
 {
@@ -45,7 +46,7 @@ namespace LinearProgramming.Algorithms.Utils
         /// <summary>
         /// Creates a bordered box for content
         /// </summary>
-        public static string CreateBox(string content, string title = null, int minWidth = 60)
+        public static string CreateBox(string content, string? title = null, int minWidth = 60)
         {
             if (content == null) content = string.Empty;
             
@@ -221,6 +222,40 @@ namespace LinearProgramming.Algorithms.Utils
             return new string(lineChar, width);
         }
         
+        /// <summary>
+        /// Formats a linear constraint into a readable string, e.g. "2 x1 + 3 x2 <= 5".
+        /// Provides a single shared implementation so that all algorithms can call
+        /// <c>OutputFormatter.FormatConstraint(...)</c>.
+        /// </summary>
+        public static string FormatConstraint(double[] coefficients, ConstraintType type, double rhs, string[]? variableNames = null, double epsilon = NumericalStabilityUtils.Epsilon)
+        {
+            if (coefficients == null) throw new ArgumentNullException(nameof(coefficients));
+
+            var terms = new List<string>();
+            for (int i = 0; i < coefficients.Length; i++)
+            {
+                double coef = coefficients[i];
+                if (Math.Abs(coef) < epsilon) continue; // skip zero terms
+
+                string varName = variableNames != null && i < variableNames.Length ? variableNames[i] : $"x{i + 1}";
+                string sign = coef < 0 ? "- " : (terms.Count > 0 ? "+ " : string.Empty);
+                double absCoef = Math.Abs(coef);
+                string coefStr = absCoef.AlmostEquals(1.0, epsilon) ? string.Empty : absCoef.ToString("0.######");
+                terms.Add($"{sign}{coefStr}{(coefStr != string.Empty ? " " : string.Empty)}{varName}".TrimStart());
+            }
+            if (terms.Count == 0) terms.Add("0");
+
+            string rel = type switch
+            {
+                ConstraintType.LessThanOrEqual => "<=",
+                ConstraintType.Equal => "=",
+                ConstraintType.GreaterThanOrEqual => ">=",
+                _ => "?"
+            };
+
+            return $"{string.Join(" ", terms)} {rel} {rhs.ToString("0.######")}";
+        }
+
         /// <summary>
         /// Creates a section with a title and content
         /// </summary>

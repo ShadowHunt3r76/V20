@@ -4,15 +4,16 @@ using LinearProgramming.Parsing;
 using static LinearProgramming.Algorithms.Utils.NumericalStabilityUtils;
 using static LinearProgramming.Algorithms.SensitivityAnalysis.SensitivityOutputFormatter;
 
-namespace LinearProgramming.Algorithms
+namespace LinearProgramming.Algorithms.SensitivityAnalysis
 {
-    public class SensitivityAnalysis : BaseSensitivityAnalysis
+    public class SensitivityAnalysisImpl : BaseSensitivityAnalysis
     {
         private readonly double[,] _finalTableau;
         private readonly int[] _basis;
         private readonly Variable[] _variables;
+        private bool _analysisPerformed = false;
 
-        public SensitivityAnalysis(
+        public SensitivityAnalysisImpl(
             double[,] finalTableau, 
             int[] basis, 
             Variable[] variables, 
@@ -28,6 +29,22 @@ namespace LinearProgramming.Algorithms
             _finalTableau = finalTableau ?? throw new ArgumentNullException(nameof(finalTableau));
             _basis = basis ?? throw new ArgumentNullException(nameof(basis));
             _variables = variables ?? throw new ArgumentNullException(nameof(variables));
+        }
+
+        /// <summary>
+        /// Performs the sensitivity analysis on the linear programming solution.
+        /// This implementation analyzes the final tableau to determine sensitivity information.
+        /// </summary>
+        public override void PerformAnalysis()
+        {
+            if (_analysisPerformed)
+                return;
+
+            // The analysis is performed on-demand when specific methods are called
+            // (e.g., GetRHSRange, GetShadowPrice, etc.)
+            // This is a no-op as the implementation is already set up for lazy evaluation
+            
+            _analysisPerformed = true;
         }
 
         /// <summary>
@@ -110,7 +127,7 @@ namespace LinearProgramming.Algorithms
         /// Gets the range of values for the right-hand side of a constraint
         /// while maintaining the current optimal basis.
         /// </summary>
-        public (double lowerBound, double upperBound) GetRHSRange(int constraintIndex)
+        public override (double lowerBound, double upperBound) GetRHSRange(int constraintIndex)
         {
             if (constraintIndex < 0 || constraintIndex >= _numConstraints)
                 throw new ArgumentOutOfRangeException(nameof(constraintIndex));
@@ -169,7 +186,7 @@ namespace LinearProgramming.Algorithms
         /// <summary>
         /// Gets the shadow price (dual value) for a constraint.
         /// </summary>
-        public double GetShadowPrice(int constraintIndex)
+        public override double GetShadowPrice(int constraintIndex)
         {
             if (constraintIndex < 0 || constraintIndex >= _numConstraints)
                 throw new ArgumentOutOfRangeException(nameof(constraintIndex));

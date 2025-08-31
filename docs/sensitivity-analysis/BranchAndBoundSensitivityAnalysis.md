@@ -10,6 +10,7 @@
 - **Constraint RHS Ranges**: Identifies valid ranges for constraint right-hand sides
 - **Dual Values**: Provides shadow prices from the LP relaxation
 - **Reduced Costs**: Calculates reduced costs for variables
+- **Text-based Visualizations**: Includes rich text-based visualizations of sensitivity analysis results
 
 ## Usage
 
@@ -76,7 +77,7 @@ var analysis = new BranchAndBoundSensitivityAnalysis(solution, model);
 analysis.PerformAnalysis();
 ```
 
-### Sample Output
+### Sample Output with Visualizations
 ```
 ==========================================================
 BRANCH AND BOUND SENSITIVITY ANALYSIS
@@ -96,22 +97,59 @@ Total Nodes Explored: 5
 
 LP-BASED SENSITIVITY ANALYSIS (FROM BEST NODE)
 ----------------------------------------
-[Standard LP sensitivity analysis output...]
+OBJECTIVE COEFFICIENT RANGES:
+x1: [8.000000, 15.000000] (Current: 10.000000)
+x2: [0.000000, 25.000000] (Current: 20.000000)
+x3: [10.000000, 20.000000] (Current: 15.000000)
+
+VISUALIZATION
+----------------------------------------
+OBJECTIVE COEFFICIENT RANGES
+x1   [#############|------------------] 8.00 ──●── 15.00 (10.00)
+x2   [------------------|#############] 0.00 ────────●── 25.00 (20.00)
+x3   [###########|-------------------] 10.00 ──●── 20.00 (15.00)
+
+NON-ZERO REDUCED COSTS
+x2: ████████████████████████████████████████████ 5.00
+
+RIGHT-HAND SIDE RANGES
+Constraint 1 (≤) [10.00 ────●─── 15.00] (12.00)
+
+SHADOW PRICES (DUAL VARIABLES)
+Constraint 1 (≤): ██████████████████████████████████████████ 2.00
 
 INTEGER-SPECIFIC SENSITIVITY ANALYSIS
 ----------------------------------------
-Variable  Value  Type      Impact on Objective
-x1        1      Binary    Decrease if excluded: -10.00
-x2        0      Binary    Increase if included: +20.00 (Infeasible)
-x3        1      Binary    Decrease if excluded: -15.00
+VARIABLE  VALUE  TYPE     IMPACT ON OBJECTIVE
+x1        1      Binary   Decrease if excluded: -10.00
+x2        0      Binary   Increase if included: +20.00 (Infeasible)
+x3        1      Binary   Decrease if excluded: -15.00
 
 CONSTRAINT SENSITIVITY
 ----------------------------------------
-Constraint  Type           Slack    Dual Value
+CONSTRAINT  TYPE           SLACK    DUAL VALUE
 1           ≤ (Knapsack)   0.00     2.00
 ```
 
 ## Interpretation of Results
+
+### Visualizations Explained
+1. **Objective Coefficient Ranges**:
+   - Bar charts show the allowable range for each objective coefficient
+   - The `●` marker indicates the current coefficient value
+   - Example: `x1` can range from 8.00 to 15.00 (current: 10.00)
+
+2. **Reduced Costs**:
+   - Histogram shows non-zero reduced costs for non-basic variables
+   - Indicates how much the objective would change if the variable entered the basis
+
+3. **Right-Hand Side Ranges**:
+   - Shows the valid range for each constraint's RHS
+   - The `●` marker indicates the current RHS value
+
+4. **Shadow Prices**:
+   - Histogram shows the dual value for each binding constraint
+   - Indicates the rate of change of the objective per unit change in the RHS
 
 ### Integer-Specific Analysis
 - **x1 (Value: 1)**: Excluding x1 would decrease the objective by 10.00 (its coefficient)
@@ -121,6 +159,7 @@ Constraint  Type           Slack    Dual Value
 ### Constraint Sensitivity
 - The knapsack constraint is binding (slack = 0)
 - The dual value of 2.00 indicates that increasing the knapsack capacity by 1 unit would improve the objective by 2.00 (in the LP relaxation)
+- The RHS range shows that this rate holds for capacity between 10.00 and 15.00
 
 ## Important Notes
 1. **LP Relaxation vs. Integer Solution**: The LP-based analysis is performed on the relaxation at the best node, which may differ from the integer solution.

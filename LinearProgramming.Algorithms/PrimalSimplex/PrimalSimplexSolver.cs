@@ -5,6 +5,7 @@ using System.Text;
 using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms.PrimalSimplex;
 using LinearProgramming.Algorithms.Utils;
+using LinearProgramming.Algorithms.Exceptions;
 
 // Use the outer CanonicalLinearProgrammingModel from LinearProgramming.Parsing
 using CanonicalLinearProgrammingModel = LinearProgramming.Parsing.ParsedLinearProgrammingModel.CanonicalLinearProgrammingModel;
@@ -15,9 +16,9 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
 {
     public class PrimalSimplexSolver
     {
-        private CanonicalLinearProgrammingModel model;
+        private CanonicalLinearProgrammingModel? model;
         private const double Epsilon = MatrixUtils.Epsilon;
-        private string[] _variableNames;
+        private string[]? _variableNames;
         private List<int> _basisIndices = new List<int>();
         private int _slackCount;
         private int _artificialCount;
@@ -351,28 +352,35 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         
         // Get basis indices
         int[] basisIndices = new int[basis.Length];
-        for (int i = 0; i < basis.Length; i++)
+        if (_variableNames != null)
         {
-            // Find the index of the basis variable in the variable names array
-            int index = Array.IndexOf(_variableNames, basis[i]);
-            basisIndices[i] = index >= 0 ? index : -1;
+            for (int i = 0; i < basis.Length; i++)
+            {
+                // Find the index of the basis variable in the variable names array
+                int index = Array.IndexOf(_variableNames, basis[i]);
+                basisIndices[i] = index >= 0 ? index : -1;
+            }
         }
         
         // Get non-basis indices
-        var nonBasisVars = _variableNames.Except(basis).ToArray();
-        int[] nonBasisIndices = new int[nonBasisVars.Length];
-        for (int i = 0; i < nonBasisVars.Length; i++)
+        int[] nonBasisIndices = Array.Empty<int>();
+        if (_variableNames != null)
         {
-            int index = Array.IndexOf(_variableNames, nonBasisVars[i]);
-            nonBasisIndices[i] = index >= 0 ? index : -1;
+            var nonBasisVars = _variableNames.Except(basis).ToArray();
+            nonBasisIndices = new int[nonBasisVars.Length];
+            for (int i = 0; i < nonBasisVars.Length; i++)
+            {
+                int index = Array.IndexOf(_variableNames, nonBasisVars[i]);
+                nonBasisIndices[i] = index >= 0 ? index : -1;
+            }
         }
         
         // Create and return the iteration object
         return new TableauIteration
         {
             Iteration = iter,
-            BasisVariables = new List<string>(basis),
-            NonBasisVariables = nonBasisVars,
+            BasisVariables = basis.ToArray(),
+            NonBasisVariables = _variableNames?.Except(basis).ToArray() ?? Array.Empty<string>(),
             NonBasicVariableIndices = nonBasisIndices,
             BasicVariableValues = GetBasicVariableValues(tableau, basis),
             PivotElement = leaving >= 0 && entering >= 0 ? tableau[leaving + 1, entering] : 0.0
@@ -443,11 +451,14 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         
         // Set variable values in the solution
         var variableValues = new Dictionary<string, double>();
-        for (int i = 0; i < _variableNames.Length; i++)
+        if (_variableNames != null)
         {
-            if (i < solutionVector.Length)
+            for (int i = 0; i < _variableNames.Length; i++)
             {
-                variableValues[_variableNames[i]] = solutionVector[i];
+                if (i < solutionVector.Length)
+                {
+                    variableValues[_variableNames[i]] = solutionVector[i];
+                }
             }
         }
         solution.VariableValues = variableValues;
@@ -539,7 +550,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         Console.WriteLine(OutputFormatter.CreateBox(sb.ToString(), "CANONICAL FORM"));
     }
     
-    private string FormatObjective(double[] coefficients, string[] variableNames = null)
+    private string FormatObjective(double[] coefficients, string[]? variableNames = null)
     {
         var terms = new List<string>();
         for (int i = 0; i < coefficients.Length; i++)
@@ -555,7 +566,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         return string.Join(" ", terms);
     }
     
-    private string FormatConstraint(double[] coefficients, ConstraintType type, double rhs, string[] variableNames = null)
+    private string FormatConstraint(double[] coefficients, ConstraintType type, double rhs, string[]? variableNames = null)
     {
         var terms = new List<string>();
         for (int i = 0; i < coefficients.Length; i++)
@@ -924,7 +935,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
     /// </summary>
     /// <param name="solution">The solution from the PrimalSimplexSolver</param>
     /// <param name="finalTableau">The final simplex tableau (optional, will be extracted from solution if not provided)</param>
-    public void PerformSensitivityAnalysis(LinearProgramSolution solution, double[,] finalTableau = null)
+    public void PerformSensitivityAnalysis(LinearProgramSolution solution, double[,]? finalTableau = null)
     {
         if (solution == null)
         {
@@ -935,9 +946,12 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         try
         {
             // If finalTableau is not provided, try to get it from the solution
-            if (finalTableau == null && solution is TableauIteration finalIteration)
+            if (finalTableau == null)
             {
-                finalTableau = finalIteration.Tableau;
+                if (solution is LinearProgramSolution linearSolution)
+                {
+                    finalTableau = linearSolution.OptimalTable;
+                }
             }
 
             if (finalTableau == null)
@@ -955,7 +969,7 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 .ToArray();
 
             // Get the original objective coefficients
-            var objectiveCoefficients = model.ObjectiveCoefficients;
+            var objectiveCoefficients = model.ObjectiveCoefficients ?? Array.Empty<double>();
             
             // Get the original RHS values
             var rhsCoefficients = model.RightHandSide;

@@ -10,6 +10,7 @@
 - **Constraint RHS Ranges**: Identifies valid ranges for constraint right-hand sides
 - **Dual Values**: Provides shadow prices for both original constraints and cuts
 - **Reduced Costs**: Calculates reduced costs for variables
+- **Text-based Visualizations**: Includes rich text-based visualizations of sensitivity analysis results
 
 ## Usage
 
@@ -70,7 +71,7 @@ var analysis = new CuttingPlaneSensitivityAnalysis(solution, model);
 analysis.PerformAnalysis();
 ```
 
-### Sample Output
+### Sample Output with Visualizations
 ```
 ==========================================================
 CUTTING PLANE SENSITIVITY ANALYSIS
@@ -90,37 +91,90 @@ Cuts Added: 2
 
 LP-BASED SENSITIVITY ANALYSIS
 ----------------------------------------
-[Standard LP sensitivity analysis output from the final LP relaxation...]
+OBJECTIVE COEFFICIENT RANGES:
+x1: [2.000000, 4.000000] (Current: 3.000000)
+x2: [1.500000, 3.000000] (Current: 2.000000)
+
+VISUALIZATION
+----------------------------------------
+OBJECTIVE COEFFICIENT RANGES
+x1   [#############|------------------] 2.00 ──●── 4.00 (3.00)
+x2   [###########|-------------------] 1.50 ──●── 3.00 (2.00)
+
+NON-ZERO REDUCED COSTS
+[No non-basic variables with non-zero reduced costs]
+
+RIGHT-HAND SIDE RANGES
+Constraint 1 (≤) [8.00 ────●─── 12.00] (10.00)
+Constraint 2 (≤) [4.00 ────●─── 8.00] (6.00)
+
+SHADOW PRICES (DUAL VARIABLES)
+Constraint 1 (≤): ██████████████████████████████████████████ 0.00
+Constraint 2 (≤): ██████████████████████████████████████████ 0.00
+Cut 1 (≤):        ██████████████████████████████████████████ 0.50
+Cut 2 (≤):        ██████████████████████████████████████████ 1.00
 
 CUT-SPECIFIC SENSITIVITY ANALYSIS
 ----------------------------------------
-Cut 1 (Iteration 1): -0.5x1 + x2 ≤ 1.5
+CUT 1 (Iteration 1): -0.5x1 + x2 ≤ 1.5
   - Impact on Objective: -1.00
   - Dual Value: 0.50
+  - Slack: 0.50
+  - Status: Binding
 
-Cut 2 (Iteration 3): x1 ≤ 2
+CUT 2 (Iteration 3): x1 ≤ 2
   - Impact on Objective: -3.00
   - Dual Value: 1.00
+  - Slack: 0.00
+  - Status: Tightly Binding
 
 CONSTRAINT SENSITIVITY
 ----------------------------------------
-Constraint  Type     Slack    Dual Value   Status
+CONSTRAINT  TYPE     SLACK    DUAL VALUE   STATUS
 1           ≤        1.00     0.00         Non-binding
 2           ≤        1.00     0.00         Non-binding
 Cut 1       ≤        0.50     0.50         Binding
-Cut 2       ≤        0.00     1.00         Binding
+Cut 2       ≤        0.00     1.00         Tightly Binding
 ```
 
 ## Interpretation of Results
 
+### Visualizations Explained
+1. **Objective Coefficient Ranges**:
+   - Bar charts show the allowable range for each objective coefficient
+   - The `●` marker indicates the current coefficient value
+   - Example: `x1` can range from 2.00 to 4.00 (current: 3.00)
+
+2. **Right-Hand Side Ranges**:
+   - Shows the valid range for each constraint's RHS
+   - The `●` marker indicates the current RHS value
+   - Example: Constraint 1's RHS can range from 8.00 to 12.00 (current: 10.00)
+
+3. **Shadow Prices**:
+   - Histogram shows the dual value for each constraint and cut
+   - The length of the bar indicates the relative strength of the dual value
+   - Cuts have positive dual values, showing their impact on the solution
+
 ### Cut-Specific Analysis
-- **Cut 1**: The first cut added at iteration 1 removed part of the feasible region, reducing the objective by 1.00
-- **Cut 2**: The second cut at iteration 3 was crucial, reducing the objective by 3.00 and making the solution integer-feasible
+- **Cut 1 (Iteration 1)**:
+  - Slightly binding (slack = 0.50)
+  - Dual value of 0.50 indicates the objective would improve by 0.5 if the RHS increased by 1
+  - Reduced the objective by 1.00 from the initial LP relaxation
+
+- **Cut 2 (Iteration 3)**:
+  - Tightly binding (slack = 0.00)
+  - Higher dual value (1.00) shows it's more restrictive than Cut 1
+  - Reduced the objective by 3.00, making the solution integer-feasible
 
 ### Constraint Sensitivity
-- The original constraints are non-binding (slack > 0)
-- Both cuts are binding (slack = 0) with positive dual values, indicating they are actively constraining the solution
-- The second cut has a higher dual value (1.00 vs 0.50), indicating it has a stronger impact on the objective
+- **Original Constraints**:
+  - Both constraints are non-binding (slack = 1.00)
+  - Dual values are 0.00, indicating they don't constrain the current solution
+
+- **Cuts**:
+  - Both cuts are binding (slack ≤ 0.50)
+  - The second cut is more restrictive (higher dual value)
+  - The dual values show the rate of objective improvement per unit relaxation of each cut
 
 ## Important Notes
 1. **LP Relaxation**: The LP-based analysis is performed on the final LP relaxation, which includes all cuts

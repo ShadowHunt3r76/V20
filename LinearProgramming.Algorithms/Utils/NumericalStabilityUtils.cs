@@ -13,6 +13,9 @@ namespace LinearProgramming.Algorithms.Utils
         /// </summary>
         public const double Epsilon = 1e-10;
 
+        // Legacy alias for code that still references the old constant name
+        public const double EPSILON = Epsilon;
+
         /// <summary>
         /// Checks if a value is effectively zero within the specified tolerance.
         /// </summary>
@@ -104,7 +107,11 @@ namespace LinearProgramming.Algorithms.Utils
         /// <summary>
         /// Clamps a value between a minimum and maximum value with optional tolerance
         /// </summary>
-        public static double Clamp(double value, double min, double max, double epsilon = Epsilon)
+
+        /// <summary>
+        /// Extension overload so you can call <c>value.Clamp(min,max)</c>
+        /// </summary>
+        public static double Clamp(this double value, double min, double max, double epsilon = Epsilon)
         {
             if (min > max + epsilon)
                 throw new ArgumentException($"min ({min}) must be less than or equal to max ({max})");

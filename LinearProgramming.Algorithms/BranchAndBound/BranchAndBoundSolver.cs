@@ -5,6 +5,8 @@ using LinearProgramming.Parsing;
 using LinearProgramming.Algorithms.PrimalSimplex;
 using LinearProgramming.Algorithms.Utils;
 using static LinearProgramming.Algorithms.PrimalSimplex.MatrixUtils;
+using System.Text;
+using static LinearProgramming.Algorithms.Utils.OutputFormatter;
 
 namespace LinearProgramming.Algorithms.BranchAndBound
 {
@@ -18,12 +20,12 @@ namespace LinearProgramming.Algorithms.BranchAndBound
     {
         public int Id { get; set; }
         public int? ParentId { get; set; }
-        public CanonicalLinearProgrammingModel Model { get; set; }
-        public LinearProgramSolution Solution { get; set; }
-        public string BranchingConstraint { get; set; }
+        public required CanonicalLinearProgrammingModel Model { get; set; }
+        public required LinearProgramSolution Solution { get; set; }
+        public string BranchingConstraint { get; set; } = string.Empty;
         public double UpperBound { get; set; }
         public bool IsFathomed { get; set; }
-        public string FathomReason { get; set; }
+        public string FathomReason { get; set; } = string.Empty;
         public int BranchedVariableIndex { get; set; }
         public List<double[,]> TableIterations { get; set; } = new List<double[,]>();
         public int Depth { get; set; }
@@ -35,12 +37,12 @@ namespace LinearProgramming.Algorithms.BranchAndBound
     public class BranchAndBoundSolution
     {
         public List<BranchAndBoundNode> AllNodes { get; set; } = new List<BranchAndBoundNode>();
-        public BranchAndBoundNode BestCandidate { get; set; }
+        public BranchAndBoundNode? BestCandidate { get; set; }
         public double BestObjectiveValue { get; set; } = double.MinValue;
-        public double[] BestSolution { get; set; }
-        public string OverallStatus { get; set; }
-        public CanonicalLinearProgrammingModel CanonicalForm { get; set; }
-        public double[,] CanonicalMatrix { get; set; }
+        public double[] BestSolution { get; set; } = Array.Empty<double>();
+        public string OverallStatus { get; set; } = string.Empty;
+        public required CanonicalLinearProgrammingModel CanonicalForm { get; set; }
+        public double[,] CanonicalMatrix { get; set; } = new double[0,0];
         public int TotalNodesExplored { get; set; }
         public int TotalNodesFathomed { get; set; }
     }
@@ -62,11 +64,12 @@ namespace LinearProgramming.Algorithms.BranchAndBound
         /// <returns>Complete branch and bound solution with all sub-problems and iterations</returns>
         public BranchAndBoundSolution Solve(ParsedLinearProgrammingModel originalModel)
         {
-            var solution = new BranchAndBoundSolution();
-            
-            // Convert to canonical form and store for display
-            solution.CanonicalForm = originalModel.ToCanonicalForm();
-            solution.CanonicalMatrix = MatrixUtils.ConvertToMatrix(solution.CanonicalForm.CoefficientMatrix);
+            var canonical = originalModel.ToCanonicalForm();
+            var solution = new BranchAndBoundSolution
+            {
+                CanonicalForm = canonical,
+                CanonicalMatrix = MatrixUtils.ConvertToMatrix(canonical.CoefficientMatrix)
+            };
             
             // Check if any variables are integer or binary
             bool hasIntegerVariables = originalModel.Variables.Any(v => v.Type == VariableType.Integer || v.Type == VariableType.Binary);
@@ -233,6 +236,7 @@ namespace LinearProgramming.Algorithms.BranchAndBound
                 Id = 0,
                 ParentId = null,
                 Model = CloneModel(canonicalModel),
+                Solution = new LinearProgramSolution(),
                 BranchingConstraint = "Root Node (Original Problem)",
                 Depth = 0
             };
@@ -429,7 +433,7 @@ namespace LinearProgramming.Algorithms.BranchAndBound
             for (int i = 0; i < Math.Min(solution.Length, originalModel.Variables.Count); i++)
             {
                 var varType = originalModel.Variables[i].Type;
-                if (varType == VariableType.Continuous)
+                if (varType == VariableType.Unrestricted || varType == VariableType.NonNegative || varType == VariableType.NonPositive)
                     continue;
                     
                 double value = solution[i];
@@ -512,6 +516,7 @@ namespace LinearProgramming.Algorithms.BranchAndBound
                 Id = nextNodeId++,
                 ParentId = parent.Id,
                 Model = childModel,
+                Solution = new LinearProgramSolution(),
                 BranchingConstraint = $"x{variableIndex + 1} {constraintDescription}",
                 BranchedVariableIndex = variableIndex,
                 Depth = parent.Depth + 1
@@ -716,17 +721,6 @@ namespace LinearProgramming.Algorithms.BranchAndBound
         }
         
         /// <summary>
-        /// Gets the appropriate color for a node based on its status
-        /// </summary>
-        private ConsoleColor GetNodeColor(BranchAndBoundNode node, BranchAndBoundNode bestNode)
-        {
-            if (node == bestNode) return ConsoleColor.Green;
-            if (node.IsFathomed) return ConsoleColor.Red;
-            if (node.Solution != null && node.Solution.Status == "Optimal") return ConsoleColor.Blue;
-            return ConsoleColor.Gray;
-        }
-        
-        /// <summary>
         /// Gets a symbol representing the node's status
         /// </summary>
         private string GetNodeStatusSymbol(BranchAndBoundNode node)
@@ -734,6 +728,17 @@ namespace LinearProgramming.Algorithms.BranchAndBound
             if (node.IsFathomed) return "✗";
             if (node.Solution != null && node.Solution.Status == "Optimal") return "●";
             return "◌";
+        }
+        
+        /// <summary>
+        /// Gets the appropriate color for a node based on its status
+        /// </summary>
+        private ConsoleColor GetNodeColor(BranchAndBoundNode node, BranchAndBoundNode? bestNode)
+        {
+            if (bestNode != null && node == bestNode) return ConsoleColor.Green;
+            if (node.IsFathomed) return ConsoleColor.Red;
+            if (node.Solution != null && node.Solution.Status == "Optimal") return ConsoleColor.Blue;
+            return ConsoleColor.Gray;
         }
         
         /// <summary>
