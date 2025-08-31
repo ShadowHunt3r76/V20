@@ -198,7 +198,7 @@ namespace LinearProgramming.Algorithms.BranchAndBound
 
             // Display the complete branch and bound tree
             DisplayBranchAndBoundTree(solution);
-            
+
             // Display the path to the best solution
             if (solution.BestCandidate != null)
             {
@@ -241,19 +241,112 @@ namespace LinearProgramming.Algorithms.BranchAndBound
         /// <summary>
         /// Determines if a node should be fathomed based on bound, infeasibility, or unboundedness
         /// </summary>
+        /// <summary>
+        /// Analyzes infeasibility and provides detailed reason
+        /// </summary>
+        private string AnalyzeInfeasibility(CanonicalLinearProgrammingModel model, LinearProgramSolution solution)
+        {
+            var analysis = new StringBuilder();
+            
+            // Check for trivially infeasible constraints
+            for (int i = 0; i < model.ConstraintTypes.Length; i++)
+            {
+                bool allNonPositive = true;
+                bool allNonNegative = true;
+                bool allZero = true;
+                bool hasPositiveRHS = model.RHSVector[i] > EPSILON;
+                bool hasNegativeRHS = model.RHSVector[i] < -EPSILON;
+
+                foreach (var coef in model.CoefficientMatrix[i])
+                {
+                    if (coef > EPSILON)
+                    {
+                        allNonPositive = false;
+                        allZero = false;
+                    }
+                    else if (coef < -EPSILON)
+                    {
+                        allNonNegative = false;
+                        allZero = false;
+                    }
+                }
+
+                // Check for trivially infeasible constraints
+                if ((model.ConstraintTypes[i] == ConstraintType.GreaterThanOrEqual && allNonPositive && hasPositiveRHS) ||
+                    (model.ConstraintTypes[i] == ConstraintType.LessThanOrEqual && allNonNegative && hasNegativeRHS) ||
+                    (model.ConstraintTypes[i] == ConstraintType.Equal && allZero && Math.Abs(model.RHSVector[i]) > EPSILON))
+                {
+                    analysis.AppendLine($"- Constraint {i + 1} is trivially infeasible");
+                    analysis.AppendLine($"  {FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RHSVector[i], model.VariableNames)}");
+                }
+            }
+
+            // Check for conflicting constraints
+            for (int i = 0; i < model.ConstraintTypes.Length; i++)
+            {
+                for (int j = i + 1; j < model.ConstraintTypes.Length; j++)
+                {
+                    if (AreConflictingConstraints(
+                        model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RHSVector[i],
+                        model.CoefficientMatrix[j], model.ConstraintTypes[j], model.RHSVector[j],
+                        out string conflictReason))
+                    {
+                        analysis.AppendLine($"- Conflict between constraints {i + 1} and {j + 1}: {conflictReason}");
+                    }
+                }
+            }
+
+            return analysis.Length > 0 ? analysis.ToString() : "No specific infeasibility reason identified";
+        }
+
+        private bool AreConflictingConstraints(
+            double[] coeffs1, ConstraintType type1, double rhs1,
+            double[] coeffs2, ConstraintType type2, double rhs2,
+            out string reason)
+        {
+            // Check if constraints are parallel but have no feasible region
+            bool allEqual = true;
+            for (int k = 0; k < coeffs1.Length; k++)
+            {
+                if (Math.Abs(coeffs1[k] - coeffs2[k]) > EPSILON)
+                {
+                    allEqual = false;
+                    break;
+                }
+            }
+            
+            if (allEqual)
+            {
+                if ((type1 == ConstraintType.LessThanOrEqual && type2 == ConstraintType.GreaterThanOrEqual && rhs1 < rhs2) ||
+                    (type1 == ConstraintType.GreaterThanOrEqual && type2 == ConstraintType.LessThanOrEqual && rhs1 > rhs2))
+                {
+                    reason = "Parallel constraints with no feasible region";
+                    return true;
+                }
+            }
+            
+            reason = string.Empty;
+            return false;
+        }
+
         private bool ShouldFathomNode(BranchAndBoundNode node, double bestKnownValue, ParsedLinearProgrammingModel originalModel)
         {
             // Fathom by infeasibility
             if (node.Solution.Status == "Infeasible")
             {
-                node.FathomReason = "Infeasible";
+                node.FathomReason = "Infeasible: " + AnalyzeInfeasibility(node.Model, node.Solution);
+                Console.WriteLine($"\n=== Infeasibility Analysis for Node {node.Id} ===");
+                Console.WriteLine(node.FathomReason);
                 return true;
             }
 
-            // Fathom by unboundedness (for maximization problems, this means no optimal integer solution in this branch)
+            // Fathom by unboundedness
             if (node.Solution.Status == "Unbounded")
             {
-                node.FathomReason = "Unbounded (LP relaxation)";
+                node.FathomReason = "Unbounded LP relaxation - no optimal integer solution in this branch";
+                Console.WriteLine($"\n=== Unbounded Analysis for Node {node.Id} ===");
+                Console.WriteLine("The LP relaxation is unbounded. This suggests that the integer problem");
+                Console.WriteLine("may be unbounded or may require additional constraints to find an optimal solution.");
                 return true;
             }
 
@@ -261,10 +354,29 @@ namespace LinearProgramming.Algorithms.BranchAndBound
             if (node.Solution.Status == "Optimal")
             {
                 node.UpperBound = node.Solution.ObjectiveValue;
+                
+                // Check for numerical stability issues
+                if (double.IsInfinity(node.UpperBound) || double.IsNaN(node.UpperBound))
+                {
+                    node.FathomReason = "Numerical instability detected in solution";
+                    return true;
+                }
+                
+                // Check if this node's bound is worse than the best known solution
                 if (bestKnownValue != double.MinValue && node.UpperBound <= bestKnownValue + EPSILON)
                 {
-                    node.FathomReason = $"Bound ({node.UpperBound:F3} ? {bestKnownValue:F3})";
+                    node.FathomReason = $"Fathomed by bound: {node.UpperBound:F3} (current best: {bestKnownValue:F3})";
+                    Console.WriteLine($"\n=== Bound Analysis for Node {node.Id} ===");
+                    Console.WriteLine($"Node {node.Id} has upper bound {node.UpperBound:F3} which is not better than current best {bestKnownValue:F3}");
                     return true;
+                }
+                
+                // Check for near-integer solution that's not quite feasible
+                if (IsNearlyIntegerFeasible(node.Solution.SolutionVector, originalModel, out var fractionalVar, out var fraction))
+                {
+                    Console.WriteLine($"\n=== Near-Integer Solution in Node {node.Id} ===");
+                    Console.WriteLine($"Variable x{fractionalVar + 1} has value {node.Solution.SolutionVector[fractionalVar]:F6} (fractional part: {fraction:F6})");
+                    Console.WriteLine("Consider adjusting the branching strategy or tolerance levels.");
                 }
             }
 
@@ -274,9 +386,13 @@ namespace LinearProgramming.Algorithms.BranchAndBound
         /// <summary>
         /// Checks if the solution satisfies integer constraints
         /// </summary>
+        /// <summary>
+        /// Checks if a solution is integer feasible within tolerance
+        /// </summary>
         private bool IsIntegerFeasible(double[] solution, ParsedLinearProgrammingModel originalModel)
         {
-            if (solution == null) return false;
+            if (solution == null) 
+                return false;
 
             for (int i = 0; i < Math.Min(solution.Length, originalModel.Variables.Count); i++)
             {
@@ -295,6 +411,44 @@ namespace LinearProgramming.Algorithms.BranchAndBound
                 }
             }
             return true;
+        }
+        
+        /// <summary>
+        /// Checks if a solution is nearly integer feasible and returns the most fractional variable
+        /// </summary>
+        private bool IsNearlyIntegerFeasible(double[] solution, ParsedLinearProgrammingModel originalModel, out int fractionalVar, out double fraction)
+        {
+            fractionalVar = -1;
+            fraction = 0.0;
+            
+            if (solution == null) 
+                return false;
+                
+            double maxFraction = 0.0;
+            
+            for (int i = 0; i < Math.Min(solution.Length, originalModel.Variables.Count); i++)
+            {
+                var varType = originalModel.Variables[i].Type;
+                if (varType == VariableType.Continuous)
+                    continue;
+                    
+                double value = solution[i];
+                double intPart = Math.Floor(value);
+                double frac = Math.Abs(value - Math.Round(value));
+                
+                // Consider values very close to integers as integral
+                if (frac > EPSILON && frac < 1.0 - EPSILON)
+                {
+                    if (frac > maxFraction)
+                    {
+                        maxFraction = frac;
+                        fractionalVar = i;
+                        fraction = frac;
+                    }
+                }
+            }
+            
+            return fractionalVar >= 0;
         }
 
         /// <summary>
@@ -412,6 +566,32 @@ namespace LinearProgramming.Algorithms.BranchAndBound
                 ObjectiveCoefficients = (double[])original.ObjectiveCoefficients.Clone(),
                 VariableTypes = (VariableType[])original.VariableTypes.Clone()
             };
+        }
+
+        /// <summary>
+        /// Performs sensitivity analysis on the solution
+        /// </summary>
+        /// <param name="solution">The branch and bound solution to analyze</param>
+        /// <param name="originalModel">The original parsed model</param>
+        public static void PerformSensitivityAnalysis(BranchAndBoundSolution solution, ParsedLinearProgrammingModel originalModel)
+        {
+            if (solution.BestCandidate != null && solution.BestCandidate.Solution?.Status == "Optimal")
+            {
+                try
+                {
+                    var sensitivityAnalysis = new BranchAndBoundSensitivityAnalysis(solution, originalModel);
+                    sensitivityAnalysis.PerformAnalysis();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"\n⚠ Warning: Could not perform sensitivity analysis: {ex.Message}");
+                    Console.WriteLine("The solution is still valid, but sensitivity analysis is not available.");
+                }
+            }
+            else
+            {
+                Console.WriteLine("\n⚠ Cannot perform sensitivity analysis: No optimal solution found.");
+            }
         }
 
         /// <summary>

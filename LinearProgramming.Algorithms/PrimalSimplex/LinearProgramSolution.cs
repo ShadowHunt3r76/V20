@@ -18,6 +18,11 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
         public string Status { get; set; }
 
         /// <summary>
+        /// Gets or sets the objective value of the LP relaxation (used in integer programming)
+        /// </summary>
+        public double? LPObjectiveValue { get; set; }
+
+        /// <summary>
         /// Returns a detailed string representation of the solution
         /// </summary>
         public override string ToString()

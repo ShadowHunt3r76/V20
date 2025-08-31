@@ -61,10 +61,215 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             
         #endregion
 
+        #region Public Methods
+        
+        /// <summary>
+        /// Performs sensitivity analysis on the solved linear program
+        /// </summary>
+        /// <param name="solution">The solution from the RevisedPrimalSimplexSolver</param>
+        public void PerformSensitivityAnalysis(LinearProgramSolution solution)
+        {
+            if (solution == null)
+            {
+                Console.WriteLine("No solution available for sensitivity analysis.");
+                return;
+            }
+
+            try
+            {
+                // Get the final basis inverse, reduced costs, and other necessary data
+                var basisInverse = _basisInverse;
+                var reducedCosts = _reducedCosts;
+                var simplexMultipliers = _simplexMultipliers;
+                var currentSolution = _currentSolution;
+                var variableNames = _variableNames ?? Enumerable.Range(0, _originalVarCount).Select(i => $"x{i + 1}").ToArray();
+                var objectiveCoefficients = _objectiveCoefficients;
+                var rhsCoefficients = _rhsCoefficients;
+                var constraintTypes = _constraintTypes;
+                var basisIndices = _basisIndices.ToArray();
+                var originalVarCount = _originalVarCount;
+
+                // Create and perform sensitivity analysis
+                var sensitivityAnalysis = new RevisedSimplexSensitivityAnalysis(
+                    basisInverse,
+                    reducedCosts,
+                    simplexMultipliers,
+                    currentSolution,
+                    variableNames,
+                    objectiveCoefficients,
+                    rhsCoefficients,
+                    constraintTypes,
+                    basisIndices,
+                    originalVarCount
+                );
+
+                sensitivityAnalysis.PerformAnalysis();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"\n⚠ Warning: Could not perform sensitivity analysis: {ex.Message}");
+                Console.WriteLine("The solution is still valid, but sensitivity analysis is not available.");
+            }
+        }
+        
+        #endregion
+        
         #region Core Solver Methods
         
+        private void CheckForInfeasibility(CanonicalLinearProgrammingModel model)
+        {
+            // Check for trivially infeasible constraints
+            for (int i = 0; i < model.ConstraintTypes.Length; i++)
+            {
+                bool allNonPositive = true;
+                bool allNonNegative = true;
+                bool allZero = true;
+                bool hasPositiveRHS = model.RightHandSide[i] > EPSILON;
+                bool hasNegativeRHS = model.RightHandSide[i] < -EPSILON;
+
+                foreach (var coef in model.CoefficientMatrix[i])
+                {
+                    if (coef > EPSILON)
+                    {
+                        allNonPositive = false;
+                        allZero = false;
+                    }
+                    else if (coef < -EPSILON)
+                    {
+                        allNonNegative = false;
+                        allZero = false;
+                    }
+                }
+
+                // Check for trivially infeasible constraints
+                if ((model.ConstraintTypes[i] == ConstraintType.GreaterThanOrEqual && allNonPositive && hasPositiveRHS) ||
+                    (model.ConstraintTypes[i] == ConstraintType.LessThanOrEqual && allNonNegative && hasNegativeRHS) ||
+                    (model.ConstraintTypes[i] == ConstraintType.Equal && allZero && Math.Abs(model.RightHandSide[i]) > EPSILON))
+                {
+                    var infeasibleConstraint = new StringBuilder();
+                    infeasibleConstraint.AppendLine($"Infeasible constraint detected at row {i + 1}:");
+                    infeasibleConstraint.Append(FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RightHandSide[i]));
+                    infeasibleConstraint.AppendLine("This constraint cannot be satisfied because:");
+                    
+                    if (allZero && model.ConstraintTypes[i] == ConstraintType.Equal)
+                    {
+                        infeasibleConstraint.AppendLine("- All coefficients are zero but RHS is non-zero");
+                    }
+                    else if (allNonPositive && model.ConstraintTypes[i] == ConstraintType.GreaterThanOrEqual && hasPositiveRHS)
+                    {
+                        infeasibleConstraint.AppendLine("- All coefficients are non-positive but RHS is positive");
+                        infeasibleConstraint.AppendLine("- The sum of non-positive terms cannot be ≥ a positive number");
+                    }
+                    else if (allNonNegative && model.ConstraintTypes[i] == ConstraintType.LessThanOrEqual && hasNegativeRHS)
+                    {
+                        infeasibleConstraint.AppendLine("- All coefficients are non-negative but RHS is negative");
+                        infeasibleConstraint.AppendLine("- The sum of non-negative terms cannot be ≤ a negative number");
+                    }
+                    
+                    throw new InfeasibleProblemException(infeasibleConstraint.ToString());
+                }
+            }
+
+            // Check for conflicting constraints
+            CheckForConflictingConstraints(model);
+        }
+
+        private void CheckForConflictingConstraints(CanonicalLinearProgrammingModel model)
+        {
+            // Check for pairs of constraints that are mutually exclusive
+            for (int i = 0; i < model.ConstraintTypes.Length; i++)
+            {
+                for (int j = i + 1; j < model.ConstraintTypes.Length; j++)
+                {
+                    if (AreConflictingConstraints(
+                        model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RightHandSide[i],
+                        model.CoefficientMatrix[j], model.ConstraintTypes[j], model.RightHandSide[j],
+                        out string conflictReason))
+                    {
+                        var conflictMessage = new StringBuilder();
+                        conflictMessage.AppendLine("Conflicting constraints detected:");
+                        conflictMessage.AppendLine($"Constraint {i + 1}: {FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RightHandSide[i])}");
+                        conflictMessage.AppendLine($"Constraint {j + 1}: {FormatConstraint(model.CoefficientMatrix[j], model.ConstraintTypes[j], model.RightHandSide[j])}");
+                        conflictMessage.AppendLine($"Conflict: {conflictReason}");
+                        
+                        throw new InfeasibleProblemException(conflictMessage.ToString());
+                    }
+                }
+            }
+        }
+
+        private bool AreConflictingConstraints(
+            double[] coeffs1, ConstraintType type1, double rhs1,
+            double[] coeffs2, ConstraintType type2, double rhs2,
+            out string reason)
+        {
+            // Check if one constraint is <= and the other is >= with no overlap
+            if ((type1 == ConstraintType.LessThanOrEqual && type2 == ConstraintType.GreaterThanOrEqual && rhs1 < rhs2) ||
+                (type1 == ConstraintType.GreaterThanOrEqual && type2 == ConstraintType.LessThanOrEqual && rhs1 > rhs2))
+            {
+                bool allEqual = true;
+                for (int k = 0; k < coeffs1.Length; k++)
+                {
+                    if (Math.Abs(coeffs1[k] - coeffs2[k]) > EPSILON)
+                    {
+                        allEqual = false;
+                        break;
+                    }
+                }
+                
+                if (allEqual)
+                {
+                    reason = "Same coefficients but RHS values create an empty feasible region";
+                    return true;
+                }
+            }
+            
+            reason = string.Empty;
+            return false;
+        }
+
+        private string FormatConstraint(double[] coefficients, ConstraintType constraintType, double rhs)
+        {
+            var sb = new StringBuilder();
+            bool first = true;
+            
+            for (int j = 0; j < coefficients.Length; j++)
+            {
+                if (Math.Abs(coefficients[j]) > EPSILON)
+                {
+                    if (!first && coefficients[j] > 0) sb.Append(" + ");
+                    if (coefficients[j] < 0) sb.Append(" - ");
+                    else if (!first) sb.Append(" + ");
+                    
+                    if (Math.Abs(Math.Abs(coefficients[j]) - 1) > EPSILON || 
+                        j == coefficients.Length - 1 || 
+                        (j < coefficients.Length - 1 && Math.Abs(coefficients[j + 1]) <= EPSILON))
+                    {
+                        sb.Append($"{Math.Abs(coefficients[j]):0.##}");
+                    }
+                    
+                    sb.Append($"x{j + 1} ");
+                    first = false;
+                }
+            }
+            
+            string operatorStr = constraintType switch
+            {
+                ConstraintType.LessThanOrEqual => "≤",
+                ConstraintType.GreaterThanOrEqual => "≥",
+                ConstraintType.Equal => "=",
+                _ => "?"
+            };
+            
+            sb.AppendLine($" {operatorStr} {rhs:0.##}");
+            return sb.ToString();
+        }
+
         private LinearProgramSolution InitializeSolution(CanonicalLinearProgrammingModel model)
         {
+            // Check for infeasibility before proceeding
+            CheckForInfeasibility(model);
+            
             _constraintCount = model.CoefficientMatrix.Length;
             _originalVarCount = model.CoefficientMatrix[0].Length;
             _slackCount = _constraintCount;
@@ -1066,29 +1271,6 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                 // Step 3: Compute reduced costs for non-basic variables
                 int entering = -1;
                 double mostNegative = isPhaseI ? EPSILON : 0; // Different tolerance for Phase I
-                
-                for (int j = 0; j < n; j++)
-                {
-                    if (!basis.Contains(j))
-                    {
-                        // Extract column j from A
-                        double[] Aj = ExtractColumn(A, j, m);
-                        // Compute reduced cost: c_j - ?^T * A_j
-                        double reducedCost = c[j] - DotProduct(pi, Aj);
-                        
-                        if (reducedCost < mostNegative)
-                        {
-                            mostNegative = reducedCost;
-                            entering = j;
-                        }
-                    }
-                }
-                
-                // Step 4: Check optimality
-                if (entering == -1)
-                {
-                    // Optimal solution found
-                    double objectiveValue = DotProduct(cB, xB);
                     return ("Optimal", basis, xB, objectiveValue);
                 }
                 

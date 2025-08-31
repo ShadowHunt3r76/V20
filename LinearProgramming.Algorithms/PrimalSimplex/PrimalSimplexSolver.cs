@@ -57,6 +57,58 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
                         throw new ArgumentException("Coefficients must be finite numbers");
                 }
             }
+
+            // Check for obvious infeasibility in constraints
+            for (int i = 0; i < model.ConstraintTypes.Length; i++)
+            {
+                bool allNonPositive = true;
+                bool allNonNegative = true;
+                bool allZero = true;
+                bool hasPositiveRHS = model.RightHandSide[i] > Epsilon;
+                bool hasNegativeRHS = model.RightHandSide[i] < -Epsilon;
+
+                foreach (var coef in model.CoefficientMatrix[i])
+                {
+                    if (coef > Epsilon)
+                    {
+                        allNonPositive = false;
+                        allZero = false;
+                    }
+                    else if (coef < -Epsilon)
+                    {
+                        allNonNegative = false;
+                        allZero = false;
+                    }
+                }
+
+                // Check for trivially infeasible constraints
+                if ((model.ConstraintTypes[i] == ConstraintType.GreaterThanOrEqual && allNonPositive && hasPositiveRHS) ||
+                    (model.ConstraintTypes[i] == ConstraintType.LessThanOrEqual && allNonNegative && hasNegativeRHS) ||
+                    (model.ConstraintTypes[i] == ConstraintType.Equal && allZero && Math.Abs(model.RightHandSide[i]) > Epsilon))
+                {
+                    var infeasibleConstraint = new StringBuilder();
+                    infeasibleConstraint.AppendLine($"Infeasible constraint detected at row {i + 1}:");
+                    infeasibleConstraint.Append(FormatConstraint(model.CoefficientMatrix[i], model.ConstraintTypes[i], model.RightHandSide[i]));
+                    infeasibleConstraint.AppendLine("This constraint cannot be satisfied because:");
+                    
+                    if (allZero && model.ConstraintTypes[i] == ConstraintType.Equal)
+                    {
+                        infeasibleConstraint.AppendLine("- All coefficients are zero but RHS is non-zero");
+                    }
+                    else if (allNonPositive && model.ConstraintTypes[i] == ConstraintType.GreaterThanOrEqual && hasPositiveRHS)
+                    {
+                        infeasibleConstraint.AppendLine("- All coefficients are non-positive but RHS is positive");
+                        infeasibleConstraint.AppendLine("- The sum of non-positive terms cannot be ≥ a positive number");
+                    }
+                    else if (allNonNegative && model.ConstraintTypes[i] == ConstraintType.LessThanOrEqual && hasNegativeRHS)
+                    {
+                        infeasibleConstraint.AppendLine("- All coefficients are non-negative but RHS is negative");
+                        infeasibleConstraint.AppendLine("- The sum of non-negative terms cannot be ≤ a negative number");
+                    }
+                    
+                    throw new InfeasibleProblemException(infeasibleConstraint.ToString());
+                }
+            }
             
             // Initialize variable names if not provided
             if (model.VariableNames == null || model.VariableNames.Length == 0)
@@ -864,5 +916,72 @@ namespace LinearProgramming.Algorithms.PrimalSimplex
             }
         }
     }
+    
+    #region Public Methods
+    
+    /// <summary>
+    /// Performs sensitivity analysis on the solved linear program
+    /// </summary>
+    /// <param name="solution">The solution from the PrimalSimplexSolver</param>
+    /// <param name="finalTableau">The final simplex tableau (optional, will be extracted from solution if not provided)</param>
+    public void PerformSensitivityAnalysis(LinearProgramSolution solution, double[,] finalTableau = null)
+    {
+        if (solution == null)
+        {
+            Console.WriteLine("No solution available for sensitivity analysis.");
+            return;
+        }
+
+        try
+        {
+            // If finalTableau is not provided, try to get it from the solution
+            if (finalTableau == null && solution is TableauIteration finalIteration)
+            {
+                finalTableau = finalIteration.Tableau;
+            }
+
+            if (finalTableau == null)
+            {
+                throw new InvalidOperationException(
+                    "Final tableau is required for sensitivity analysis. " +
+                    "Please provide the final tableau or ensure the solution contains it.");
+            }
+
+            // Get variable names, defaulting to x1, x2, ... if not provided
+            var variableNames = _variableNames ?? Enumerable.Range(0, _originalVarCount)
+                .Select(i => $"x{i + 1}")
+                .Concat(Enumerable.Range(1, _slackCount).Select(i => $"s{i}"))
+                .Concat(Enumerable.Range(1, _artificialCount).Select(i => $"a{i}"))
+                .ToArray();
+
+            // Get the original objective coefficients
+            var objectiveCoefficients = model.ObjectiveCoefficients;
+            
+            // Get the original RHS values
+            var rhsCoefficients = model.RightHandSide;
+            
+            // Get the constraint types
+            var constraintTypes = model.ConstraintTypes;
+
+            // Create and perform sensitivity analysis
+            var sensitivityAnalysis = new SimplexSensitivityAnalysis(
+                finalTableau,
+                _basisIndices.ToArray(),
+                variableNames,
+                objectiveCoefficients,
+                rhsCoefficients,
+                constraintTypes
+            );
+
+            sensitivityAnalysis.PerformAnalysis();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n⚠ Warning: Could not perform sensitivity analysis: {ex.Message}");
+            Console.WriteLine("The solution is still valid, but sensitivity analysis is not available.");
+        }
+    }
+    
+    #endregion
 }
 }
