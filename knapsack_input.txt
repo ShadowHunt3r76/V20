@@ -1,9 +1,0 @@
-max
-+2x1 +3x2 +3x3 +5x4 +2x5 +4x6
-+11x1 +8x2 +6x3 +14x4 +10x5 +10x6 <= 40
-x1 bin
-x2 bin
-x3 bin
-x4 bin
-x5 bin
-x6 bin
